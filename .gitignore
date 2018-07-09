@@ -1,0 +1,5 @@
+.idea/
+vendor/
+
+.env
+config/production.json

@@ -1,0 +1,10 @@
+{
+  "port": 8080,
+  "dbDriverName": "postgres",
+  "dbSourceName": "groupbuy",
+  "dbUsername": "leonmak",
+  "dbPassword": "lmakerlz",
+  "sessionStoreKey": "1638f0363a1039fa539846a94caa9e310f6525202507843b5ac64560163156b7",
+  "sessionName": "session",
+  "csrfKey": "1638f0363a1039fa539846a94caa9e310f6525202507843b5ac64560163156b7"
+}

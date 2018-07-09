@@ -1,1 +1,4 @@
-# crud-api-golang
+# Go CRUD 
+
+Simple REST API for Golang.
+
