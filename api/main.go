@@ -18,53 +18,62 @@ import (
 	"groupbuying.online/config"
 	"github.com/teris-io/shortid"
 	"strconv"
+	"strings"
 )
 
 // TODO: Implement:
 // TODO: - csrf, rate limit middleware
 // TODO: - cloudinary, email verification, change name/password
+
+// Maps to Users table
 type User struct {
+	// uuid for dynamic tables for easier sharding
 	ID					string 		`json:"id,omitempty",db:"id"`
 	Email	 			string		`json:"email",db:"email"`
 	DisplayName 		string		`json:"displayName",db:"display_name"`
 	URLAlias 			string 		`json:"urlAlias",db:"url_alias"`
 	PasswordDigest		string 		`json:"passwordDigest",db:"password_digest"`
-	ImageURL			string 		`json:"imageUrl,omitEmpty",db:"image_url"`
-	VerifyEmailSentAt	time.Time	`json:"verifyEmailSentAt,omitEmpty",db:"verify_email_sent_at"`
-	IsVerified			bool		`json:"isVerified,omitEmpty",db:"is_verified"`
+	ImageURL			string 		`json:"imageUrl",db:"image_url"`
+	VerifyEmailSentAt	time.Time	`json:"verifyEmailSentAt",db:"verify_email_sent_at"`
+	VerifiedAt			bool		`json:"verifiedAt",db:"verified_at"`
+	CityID				uint16		`json:"cityId",db:"city_id"`
 }
 
-// For marshalling login / register requests
+// Temp struct For marshalling login / register requests
 type UserCredentials struct {
 	Email 		string	`json:"email"`
 	Password	string	`json:"password"`
-	DisplayName string	`json:"displayName,omitEmpty"`
+	DisplayName string	`json:"displayName"`
 }
 
+// Maps to Deals table
 type Deal struct {
-	Title			string			`json:"title",db:"title"`
-	Description 	string			`json:"description",db:"description"`
-	URLAlias 		string 			`json:"urlAlias",db:"url_alias"`
-	Lat				float64			`json:"latitude",db:"latitude"`
-	Long			float64			`json:"longitude",db:"longitude"`
-	LocationText	string 			`json:"locationText",db:"location_text"`
-	ExpectedPrice	float32			`json:"expectedPrice",db:"expected_price"`
-	CategoryID		string			`json:"categoryId",db:"category_id"`
-	PosterID		string			`json:"posterId",db:"poster_id"`
-	PostedAt		time.Time		`json:"postedAt",db:"posted_at"`
-	UpdatedAt		time.Time		`json:"updatedAt",db:"updated_at"`
-	IsInactive		bool			`json:"isInactive",db:"is_inactive"`
+	// uuid for dynamic tables for easier sharding
+	Title			string		`json:"title",db:"title"`
+	Description 	string		`json:"description",db:"description"`
+	URLAlias 		string 		`json:"urlAlias",db:"url_alias"`
+	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
+	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
+	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
+	// exact location text for shop
+	LocationText	*string 	`json:"locationText,omitempty",db:"location_text"`
+	ExpectedPrice	*float32	`json:"expectedPrice,omitempty",db:"expected_price"`
+	CategoryID		uint16		`json:"categoryId",db:"category_id"`
+	PosterID		string		`json:"posterId",db:"poster_id"`
+	PostedAt		time.Time	`json:"postedAt",db:"posted_at"`
+	UpdatedAt		*time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
+	InactiveAt		*time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
+	CityID			uint16		`json:"cityId",db:"city_id"`
 }
 
 type DealCategory struct {
-	ID				int8 	`json:"id",db:"id"`
+	ID				uint16 	`json:"id",db:"id"`
 	Name 			string 	`json:"name",db:"name"`
-	MaxImages		int8	`json:"maxImages",db:"max_images"`
-	MaxActiveDays	int8	`json:"maxActiveDays",db:"max_active_days"`
+	MaxImages		uint8	`json:"maxImages",db:"max_images"`
+	MaxActiveDays	uint8	`json:"maxActiveDays",db:"max_active_days"`
 }
 
 type DealMembership struct {
-	ID			string 		`json:"id",db:"id"`
 	UserID		string		`json:"userId",db:"user_id"`
 	DealID		string		`json:"dealId",db:"deal_id"`
 	JoinedAt	time.Time	`json:"joinedAt",db:"joined_at"`
@@ -94,6 +103,25 @@ type DealComment struct {
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
 }
 
+// User & Deal has a city_id, consider sharding on cities' country / state
+type City struct {
+	ID 		uint16	`json:"id",db:"id"`
+	Name	string 	`json:"name",db:"name"`
+	StateID	uint16	`json:"stateId",db:"state_id"`
+}
+
+type State struct {
+	ID 			uint16	`json:"id",db:"id"`
+	Name		string 	`json:"name",db:"name"`
+	CountryID	uint16	`json:"countryId",db:"country_id"`
+}
+
+type Country struct {
+	ID 			uint8	`json:"id",db:"id"`
+	Name		string 	`json:"name",db:"name"`
+	SortName	string	`json:"sortname",db:"sortname"`
+}
+
 var conf *config.Configuration
 var db *sql.DB
 var store *sessions.CookieStore
@@ -109,11 +137,14 @@ func main() {
 func initRouter() {
 	router := mux.NewRouter()
 	api := router.PathPrefix("/api").Subrouter()
+
+	// Deal
 	api.HandleFunc("/deals", GetDeals).Methods("GET")
 	api.HandleFunc("/deal/{id}", use(GetDeal, auth)).Methods("GET")
 	api.HandleFunc("/deal/{id}", use(PostDeal, auth)).Methods("POST")
 	api.HandleFunc("/deal/{id}", use(DeleteDeal, auth)).Methods("DELETE")
 
+	// User
 	api.HandleFunc("/register", CreateUser).Methods("POST")
 	api.HandleFunc("/login", LoginUser).Methods("POST")
 	api.HandleFunc("/logout", use(LogoutUser, auth)).Methods("POST")
@@ -124,7 +155,7 @@ func initRouter() {
 
 type Middleware func(http.HandlerFunc) http.HandlerFunc
 
-// Decorate the request handler
+// Decorate the request handler with Middleware
 func use(h http.HandlerFunc, middleware ...Middleware) http.HandlerFunc {
 	//  r.HandleFunc("/login", use(LoginUser, rateLimit, csrf))
 	for _, m := range middleware {
@@ -146,9 +177,20 @@ func auth(h http.HandlerFunc) http.HandlerFunc {
 
 func GetDeals(w http.ResponseWriter, r *http.Request) {
 	values := r.URL.Query()
+	var filterStrings []string
+	searchText := values.Get("search_text")
 	after := values.Get("after")
 	before := values.Get("before")
-	beforeFloor := values.Get("before_floor")
+	isPaginating := len(before) > 0 && len(after) > 0
+	iso8601Layout := "2006-01-02T15:04:05Z"
+	beforeT, _ := time.Parse(iso8601Layout, before)
+	afterT, _ := time.Parse(iso8601Layout, after)
+
+	cityId, err := strconv.Atoi(values.Get("city_id"))
+	if err != nil {
+		http.Error(w, "No city id", http.StatusBadRequest)
+		return
+	}
 
 	lat, err := strconv.ParseFloat(values.Get("lat"), 64)
 	lng, err := strconv.ParseFloat(values.Get("lng"), 64)
@@ -158,11 +200,11 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	showInactive, err := strconv.ParseBool(values.Get("show_inactive"))
-	filterInactiveStr := "AND is_inactive = "
+	hideInactiveStr := ""
+
 	if err == nil && showInactive {
-		filterInactiveStr += "true"
-	} else {
-		filterInactiveStr += "false"
+		hideInactiveStr = "inactive_at IS NOT NULL"
+		filterStrings = append(filterStrings, hideInactiveStr)
 	}
 
 	radiusKm, err := strconv.Atoi(values.Get("radius_km"))
@@ -170,53 +212,72 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		radiusKm = 10
 	}
 
-	// Get search filter string
+	// static options
 	pageSize := 30
 	geogColName := "point"
-	updatedColName := "updated_at"
+	postedAtColName := "posted_at"
+	cityIdColName := "city_id"
 
-	// Ensure no user-defined strings are in query
-	selectCols := ` SELECT title, description, url_alias, latitude, longitude, location_text, expected_price, 
-		category_id, poster_id, posted_at, updated_at, is_inactive FROM deals`
-	distanceFilter := fmt.Sprintf(" ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
+	selectCols := `SELECT title, description, url_alias, 
+		latitude, longitude, location_text, 
+		expected_price, category_id, poster_id, 
+		posted_at, updated_at, inactive_at, city_id FROM deals`
+
+	// NOTE: Ensure no user-defined strings are in query
+	distanceFilter := fmt.Sprintf("ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
 		geogColName, lng, lat, radiusKm)
-	isPaginating := len(before) > 0 && len(after) > 0
+	filterStrings = append(filterStrings, distanceFilter)
+
+	cityIdFilter := fmt.Sprintf("%s = %d ", cityIdColName, cityId)
+	filterStrings = append(filterStrings, cityIdFilter)
 
 	var deals []Deal
 	var rows *sql.Rows
-	iso8601Layout := "2006-01-02T15:04:05Z"
-	beforeFloorT, _ := time.Parse(iso8601Layout, beforeFloor)
+	filterStr := ""
+	dateFilter := ""
 
 	if isPaginating {
-		// Get date filter string, after most recent
-		// or between before least recent and after floor.
-		query := selectCols + " WHERE" + distanceFilter +
-			fmt.Sprintf(" AND (%s > $1 OR (%s BETWEEN $2 AND $3)) ", updatedColName, updatedColName) +
-			filterInactiveStr + fmt.Sprintf(" ORDER BY %s DESC LIMIT %d", updatedColName, pageSize)
-		rows, err = db.Query(query, after, before, beforeFloor)
-	} else {
-		// Get date filter string, after floor
-		query := selectCols + " WHERE" + distanceFilter +
-			fmt.Sprintf(" AND %s > $1 ", updatedColName) + filterInactiveStr +
-			fmt.Sprintf(" ORDER BY %s DESC LIMIT %d", updatedColName, pageSize)
-		rows, err = db.Query(query, beforeFloorT)
+		// Get date filter string, after most recent, or between before least recent and after floor.
+		dateFilter = fmt.Sprintf("(%s > $2 OR %s < $3)", postedAtColName, postedAtColName)
+		filterStrings = append(filterStrings, dateFilter)
 	}
+	if searchText == "" {
+		http.Error(w, "No search text", http.StatusInternalServerError)
+		return
+	}
+	titleFuzzyFilter := "title % $1"
+	filterStrings = append(filterStrings, titleFuzzyFilter)
+	filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
+	orderByStr := fmt.Sprintf("ORDER BY %s DESC", postedAtColName)
+	limitStr := fmt.Sprintf("LIMIT %d", pageSize)
+	query := selectCols + strings.Join([]string{filterStr, orderByStr, limitStr}, " ")
+	if isPaginating {
+		rows, err = db.Query(query, searchText, afterT, beforeT)
+	} else {
+		rows, err = db.Query(query, searchText)
+	}
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	defer rows.Close()
 	for rows.Next() {
 		var deal Deal
-		err = rows.Scan(&deal.Title, &deal.Description, &deal.URLAlias, &deal.Lat, &deal.Long, &deal.LocationText,
-			&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID, &deal.PostedAt, &deal.UpdatedAt, &deal.IsInactive)
+		err = rows.Scan(&deal.Title, &deal.Description, &deal.URLAlias,
+			&deal.Latitude, &deal.Longitude, &deal.LocationText,
+			&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
+			&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
 		if err != nil {
-			http.Error(w, "Error scanning row.", http.StatusInternalServerError)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		deals = append(deals, deal)
 	}
 	dealArr, err := json.Marshal(deals)
+	// set struct to pointer to omit on empty
+	// e.g. InactiveAt	 *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
 	if err != nil {
 		http.Error(w, "Can't marshal deals.", http.StatusInternalServerError)
 	} else {
@@ -230,6 +291,10 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 }
 
 func PostDeal(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 
 }
 
