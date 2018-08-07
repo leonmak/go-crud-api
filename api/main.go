@@ -55,7 +55,7 @@ type Deal struct {
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
-	// exact location text for shop
+	// exact location text, open in maps
 	LocationText	*string 	`json:"locationText,omitempty",db:"location_text"`
 	ExpectedPrice	*float32	`json:"expectedPrice,omitempty",db:"expected_price"`
 	CategoryID		uint16		`json:"categoryId",db:"category_id"`
@@ -182,39 +182,54 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	after := values.Get("after")
 	before := values.Get("before")
 	isPaginating := len(before) > 0 && len(after) > 0
+	if isPaginating && (after == "" || before == "") {
+		http.Error(w, "`before` or `after` is missing", http.StatusBadRequest)
+		return
+	}
 	iso8601Layout := "2006-01-02T15:04:05Z"
 	beforeT, _ := time.Parse(iso8601Layout, before)
 	afterT, _ := time.Parse(iso8601Layout, after)
+	if beforeT.After(afterT) {
+		http.Error(w, "`before` is later than `after`", http.StatusBadRequest)
+		return
+	}
 
 	cityId, err := strconv.Atoi(values.Get("city_id"))
 	if err != nil {
-		http.Error(w, "No city id", http.StatusBadRequest)
+		http.Error(w, "No valid city id", http.StatusBadRequest)
 		return
 	}
 
-	lat, err := strconv.ParseFloat(values.Get("lat"), 64)
-	lng, err := strconv.ParseFloat(values.Get("lng"), 64)
-	if err != nil {
-		http.Error(w, "Missing lat/lng.", http.StatusBadRequest)
-		return
-	}
-
-	showInactive, err := strconv.ParseBool(values.Get("show_inactive"))
-	hideInactiveStr := ""
-
-	if err == nil && showInactive {
-		hideInactiveStr = "inactive_at IS NOT NULL"
-		filterStrings = append(filterStrings, hideInactiveStr)
+	categoryId, err := strconv.Atoi(values.Get("category_id"))
+	if err == nil {
+		categoryFilter := fmt.Sprintf("category_id = %d", categoryId)
+		filterStrings = append(filterStrings, categoryFilter)
 	}
 
 	radiusKm, err := strconv.Atoi(values.Get("radius_km"))
 	if err != nil {
 		radiusKm = 10
 	}
+	lat, err := strconv.ParseFloat(values.Get("lat"), 64)
+	lng, err := strconv.ParseFloat(values.Get("lng"), 64)
+	if err == nil {
+		geogColName := "point"
+		distanceFilter := fmt.Sprintf("ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
+			geogColName, lng, lat, radiusKm)
+		filterStrings = append(filterStrings, distanceFilter)
+	}
+
+	showInactive, err := strconv.ParseBool(values.Get("show_inactive"))
+	hideInactiveStr := "inactive_at IS NULL"
+
+	if err == nil && showInactive {
+		hideInactiveStr = ""
+		filterStrings = append(filterStrings, hideInactiveStr)
+	}
+
 
 	// static options
 	pageSize := 30
-	geogColName := "point"
 	postedAtColName := "posted_at"
 	cityIdColName := "city_id"
 
@@ -224,9 +239,6 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		posted_at, updated_at, inactive_at, city_id FROM deals`
 
 	// NOTE: Ensure no user-defined strings are in query
-	distanceFilter := fmt.Sprintf("ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
-		geogColName, lng, lat, radiusKm)
-	filterStrings = append(filterStrings, distanceFilter)
 
 	cityIdFilter := fmt.Sprintf("%s = %d ", cityIdColName, cityId)
 	filterStrings = append(filterStrings, cityIdFilter)
@@ -276,6 +288,9 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		deals = append(deals, deal)
 	}
 	dealArr, err := json.Marshal(deals)
+	if string(dealArr) == "null" {
+		dealArr = []byte("[]")
+	}
 	// set struct to pointer to omit on empty
 	// e.g. InactiveAt	 *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
 	if err != nil {

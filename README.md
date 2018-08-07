@@ -17,18 +17,32 @@ done
 
 Routes:
 - `/deals`
-    - GET 
-        - `after`, `before`, `before_floor`
+    - GET
+        - `search_text`
+            - string, fuzzy text search on `title` column
+        - `city_id`
+            - serial, reference cities(id) 
+        - `category_id` (optional)
+            - serial
+        - `after`, `before` (optional)
             - iso8601 format, e.g. `2011-10-05T14:48:00.000Z`
-        - `lat`, `lng`
-            - up to 64 digits, e.g. `1.3521`
-        - `show_inactive`
-            - bool, e.g. `true`/`false`
-        - `radius_km`
+            - must use both `after` & `before` if used (for paginating)  
+        - `show_inactive` (optional)
+            - bool, e.g. `true`(show all) / `false` (default, show `inactive_at` is null)
+        - `lat`, `lng` (optional)
+            - float64, up to 64 digits, e.g. `1.3521`
+        - `radius_km` (optional)
             - int, or default 10
+            - requires `lat` & `lng`
+
 - `/deal/{id}`
     - GET
     - POST
     - PUT
-    - DELETE 
-- ``
+    - DELETE
+
+- `/deal/{id}/members`
+- `/deal/{id}/comments`
+- `/deal/{id}/images`
+- `/categories/` 
+- `/user/{id}`
