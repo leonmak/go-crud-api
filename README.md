@@ -21,7 +21,9 @@ Routes:
         - `search_text`
             - string, fuzzy text search on `title` column
         - `city_id`
-            - serial, reference cities(id) 
+            - serial, reference cities(id)
+        - `poster_id` (optional)
+            - string
         - `category_id` (optional)
             - serial
         - `after`, `before` (optional)
@@ -34,10 +36,14 @@ Routes:
         - `radius_km` (optional)
             - int, or default 10
             - requires `lat` & `lng`
-
+- `/deal`
+    - POST
+        - accepts JSON payload with keys: 
+        `title`,`description`,`thumbnailId`,`latitude`,`longitude`,`locationText`,
+        `expectedPrice`,`categoryId`,`posterId`,`cityId`
+        - returns uuid string on successful
 - `/deal/{id}`
     - GET
-    - POST
     - PUT
     - DELETE
 

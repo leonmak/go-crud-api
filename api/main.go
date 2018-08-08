@@ -16,8 +16,11 @@ import (
 	_ "github.com/lib/pq"
 
 	"groupbuying.online/config"
+	"groupbuying.online/utils"
 	"strconv"
 	"strings"
+	"io/ioutil"
+	"github.com/iancoleman/strcase"
 )
 
 // TODO: Implement:
@@ -49,18 +52,19 @@ type Deal struct {
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
+	// pointer for possible nil values
 	ThumbnailID		string 		`json:"thumbnailId",db:"thumbnail_id"`
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
-	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
-	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
+	Latitude		float64		`json:"latitude,omitempty",db:"latitude"`
+	Longitude		float64		`json:"longitude,omitempty",db:"longitude"`
 	// exact location text, open in maps
-	LocationText	*string 	`json:"locationText,omitempty",db:"location_text"`
-	ExpectedPrice	*float32	`json:"expectedPrice,omitempty",db:"expected_price"`
+	LocationText	string 		`json:"locationText,omitempty",db:"location_text"`
+	ExpectedPrice	float32		`json:"expectedPrice,omitempty",db:"expected_price"`
 	CategoryID		uint16		`json:"categoryId",db:"category_id"`
 	PosterID		string		`json:"posterId",db:"poster_id"`
 	PostedAt		time.Time	`json:"postedAt",db:"posted_at"`
-	UpdatedAt		*time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
-	InactiveAt		*time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
+	UpdatedAt		time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
+	InactiveAt		time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
 	CityID			uint16		`json:"cityId",db:"city_id"`
 }
 
@@ -120,6 +124,8 @@ type Country struct {
 	SortName	string	`json:"sortname",db:"sortname"`
 }
 
+type unstructuredJSON = map[string]interface{}
+
 var conf *config.Configuration
 var db *sql.DB
 var store *sessions.CookieStore
@@ -138,10 +144,8 @@ func initRouter() {
 
 	// Deal
 	api.HandleFunc("/deals", GetDeals).Methods("GET")
-	api.HandleFunc("/deal/{id}", use(GetDeal, auth)).Methods("GET")
-	api.HandleFunc("/deal/{id}", use(PostDeal, auth)).Methods("POST")
-	api.HandleFunc("/deal/{id}", use(UpdateDeal, auth)).Methods("PUT")
-	api.HandleFunc("/deal/{id}", use(DeleteDeal, auth)).Methods("DELETE")
+	api.HandleFunc("/deal", PostDeal).Methods("POST")
+	api.HandleFunc("/deal/{id}", use(HandleDeal, auth)).Methods("GET", "PUT", "DELETE")
 
 	// User
 	api.HandleFunc("/register", CreateUser).Methods("POST")
@@ -180,23 +184,44 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	searchText := values.Get("search_text")
 	after := values.Get("after")
 	before := values.Get("before")
-	isPaginating := len(before) > 0 && len(after) > 0
-	if isPaginating && (after == "" || before == "") {
-		http.Error(w, "`before` or `after` is missing", http.StatusBadRequest)
-		return
-	}
 	iso8601Layout := "2006-01-02T15:04:05Z"
-	beforeT, _ := time.Parse(iso8601Layout, before)
-	afterT, _ := time.Parse(iso8601Layout, after)
-	if beforeT.After(afterT) {
-		http.Error(w, "`before` is later than `after`", http.StatusBadRequest)
-		return
+	beforeT, err := time.Parse(iso8601Layout, before)
+	afterT, err := time.Parse(iso8601Layout, after)
+	isPaginating := len(before) > 0 && len(after) > 0
+	if isPaginating {
+		if after == "" || before == "" {
+			http.Error(w, "`before` or `after` is missing", http.StatusBadRequest)
+			return
+		}
+		if beforeT.After(afterT) {
+			http.Error(w, "`before` is later than `after`", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	posterId := values.Get("poster_id")
+	if posterId != "" {
+		if !utils.IsValidUUID(posterId) {
+			http.Error(w, "invalid poster id", http.StatusBadRequest)
+			return
+		}
+		posterIdColName := "poster_id"
+		posterIdFilter := fmt.Sprintf("%s = %s ", posterIdColName, posterId)
+		filterStrings = append(filterStrings, posterIdFilter)
 	}
 
 	cityId, err := strconv.Atoi(values.Get("city_id"))
 	if err != nil {
 		http.Error(w, "No valid city id", http.StatusBadRequest)
 		return
+	} else {
+		cityIdColName := "city_id"
+		cityIdFilter := fmt.Sprintf("%s = %d ", cityIdColName, cityId)
+		filterStrings = append(filterStrings, cityIdFilter)
 	}
 
 	categoryId, err := strconv.Atoi(values.Get("category_id"))
@@ -226,47 +251,43 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, hideInactiveStr)
 	}
 
-
 	// static options
 	pageSize := 30
 	postedAtColName := "posted_at"
-	cityIdColName := "city_id"
 
 	selectCols := `SELECT title, description, thumbnail_id,
 		latitude, longitude, location_text, 
 		expected_price, category_id, poster_id, 
 		posted_at, updated_at, inactive_at, city_id FROM deals`
 
-	// NOTE: Ensure no user-defined strings are in query
-
-	cityIdFilter := fmt.Sprintf("%s = %d ", cityIdColName, cityId)
-	filterStrings = append(filterStrings, cityIdFilter)
-
 	var deals []Deal
 	var rows *sql.Rows
+	var queryParams []interface{}
 	filterStr := ""
-	dateFilter := ""
+	if searchText == "" {
+		http.Error(w, "No search text", http.StatusInternalServerError)
+		return
+	} else {
+		titleFuzzyFilter := "title % $1"
+		filterStrings = append(filterStrings, titleFuzzyFilter)
+		queryParams = append(queryParams, searchText)
+	}
+	// NOTE: Ensure all user-defined strings are in query parameters
 
+	dateFilter := ""
 	if isPaginating {
 		// Get date filter string, after most recent, or between before least recent and after floor.
 		dateFilter = fmt.Sprintf("(%s > $2 OR %s < $3)", postedAtColName, postedAtColName)
 		filterStrings = append(filterStrings, dateFilter)
+		queryParams = append(queryParams, afterT, beforeT)
 	}
-	if searchText == "" {
-		http.Error(w, "No search text", http.StatusInternalServerError)
-		return
-	}
-	titleFuzzyFilter := "title % $1"
-	filterStrings = append(filterStrings, titleFuzzyFilter)
+
 	filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
 	orderByStr := fmt.Sprintf("ORDER BY %s DESC", postedAtColName)
 	limitStr := fmt.Sprintf("LIMIT %d", pageSize)
 	query := selectCols + strings.Join([]string{filterStr, orderByStr, limitStr}, " ")
-	if isPaginating {
-		rows, err = db.Query(query, searchText, afterT, beforeT)
-	} else {
-		rows, err = db.Query(query, searchText)
-	}
+
+	rows, err = db.Query(query, queryParams...)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -299,6 +320,14 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func HandleDeal(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet: GetDeal(w, r)
+	case http.MethodPut: UpdateDeal(w, r)
+	case http.MethodDelete: SetInactiveDeal(w, r)
+	default: fmt.Fprintf(w, "Method not supported %s", r.Method)
+	}
+}
 
 func GetDeal(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -307,7 +336,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no id found", http.StatusBadRequest)
 		return
 	}
-	if len(dealId) != 36 {
+	if !utils.IsValidUUID(dealId) {
 		http.Error(w, "invalid deal id", http.StatusBadRequest)
 		return
 	}
@@ -319,51 +348,111 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 
 	filterStr := fmt.Sprintf(" WHERE id = $1")
 	query := selectCols + filterStr
-	var deals []Deal
-	var rows *sql.Rows
-	rows, err := db.Query(query, dealId)
+	var deal Deal
+	err := db.QueryRow(query, dealId).Scan(
+		&deal.Title, &deal.Description, &deal.ThumbnailID,
+		&deal.Latitude, &deal.Longitude, &deal.LocationText,
+		&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
+		&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var deal Deal
-		err = rows.Scan(&deal.Title, &deal.Description, &deal.ThumbnailID,
-			&deal.Latitude, &deal.Longitude, &deal.LocationText,
-			&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
-			&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		deals = append(deals, deal)
-	}
-	if len(deals) != 1 {
-		http.Error(w, "Deal not found", http.StatusInternalServerError)
-		return
-	}
-	dealArr, err := json.Marshal(deals[0])
+	dealArr, err := json.Marshal(deal)
 	if string(dealArr) == "null" {
 		dealArr = []byte("[]")
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+
 	} else {
 		w.Write(dealArr)
 	}
 }
 
 func PostDeal(w http.ResponseWriter, r *http.Request) {
+	var result unstructuredJSON
+	jsonRead, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.Unmarshal([]byte(jsonRead), &result)
 
+	var cols []string
+	var values []interface{}
+	var colsPresent = make(map[string]bool)
+	for key, value := range result {
+		switch key {
+		case "title": values = append(values, value.(string))
+		case "description": values = append(values, value.(string))
+		case "categoryId": values = append(values, value.(float64))
+		case "posterId": values = append(values, value.(string))
+		case "cityId": values = append(values, value.(float64))
+		// nullable values
+		case "thumbnailId": values = append(values, value.(string))
+		case "latitude": values = append(values, value.(float64))
+		case "longitude": values = append(values, value.(float64))
+		case "locationText": values = append(values, value.(string))
+		case "expectedPrice": values = append(values, value.(float64))
+		default:
+			fmt.Fprintf(w, "Invalid field %s", key)
+			return
+		}
+		// add to cols arr if valid field
+		snakeKey := strcase.ToSnake(key)
+		cols = append(cols, snakeKey)
+		colsPresent[snakeKey] = true
+	}
+	// check if not null fields are all present
+	reqCols := []string{"title", "description", "category_id", "poster_id", "city_id"}
+	for _, reqCol := range reqCols {
+		if !colsPresent[reqCol] {
+			http.Error(w, fmt.Sprintf("Missing required field %s", reqCol), http.StatusBadRequest)
+			return
+		}
+	}
+	colsStr := strings.Join(cols, ",")
+	valuePlaceholders := make([]string, len(cols))
+	for i:=0; i<len(cols); i++ {
+		valuePlaceholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	valuePlaceholderStr := strings.Join(valuePlaceholders, ",")
+	insertStr := fmt.Sprintf(`INSERT INTO deals (%s)`, colsStr)
+	valuesStr := fmt.Sprintf(`VALUES (%s)`, valuePlaceholderStr)
+	returnStr := fmt.Sprintf("RETURNING %s", "id")
+	query := strings.Join([]string{insertStr, valuesStr, returnStr}, " ")
+	var dealId string
+	err = db.QueryRow(query, values...).Scan(&dealId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte(dealId))
 }
 
 func UpdateDeal(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	dealId := vars["id"]
+	if dealId == "" {
+		http.Error(w, "no id found", http.StatusBadRequest)
+		return
+	}
 
+	//newTitle := r.FormValue("title")
+	//
+	//db.QueryRow(`UPDATE deals SET`)
 }
 
-func DeleteDeal(w http.ResponseWriter, r *http.Request) {
-
+func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	dealId := vars["id"]
+	if dealId == "" {
+		http.Error(w, "no id found", http.StatusBadRequest)
+		return
+	}
+	db.QueryRow(`UPDATE deals SET inactive_at = $1 WHERE id = $2`, time.Now(), dealId)
 }
 
 func JoinDeal(w http.ResponseWriter, r *http.Request) {
