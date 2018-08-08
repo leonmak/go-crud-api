@@ -20,7 +20,7 @@ CREATE TABLE deals
   id              uuid primary key default uuid_generate_v4(),
   title           text not null,
   description     text not null,
-  url_alias       text not null unique,
+  thumbnail_id    text,
   latitude        float,
   longitude       float,
   point           geography,
@@ -34,17 +34,16 @@ CREATE TABLE deals
   city_id         serial references cities(id),
   CHECK (length(title) <= 128),
   CHECK (length(description) <= 512),
-  CHECK (length(url_alias) <= 12),
   CHECK (length(location_text) <= 128)
 );
 
 INSERT INTO deals (
-  id, title, description, url_alias,
+  id, title, description,
   latitude, longitude, point,
   location_text, expected_price,
   category_id, poster_id, city_id)
 VALUES (
-  uuid_generate_v4(), 'deal1', 'some shirt', 'uadsfa324D',
+  uuid_generate_v4(), 'deal1', 'some shirt',
   1.3521, 103.8198, ST_MakePoint(103.8198, 1.3521),
   'singapura mall', 1.4,
   1, '93dda1a7-67a4-4e81-abcf-f3a2aba687f4', 37541);

@@ -16,7 +16,6 @@ import (
 	_ "github.com/lib/pq"
 
 	"groupbuying.online/config"
-	"github.com/teris-io/shortid"
 	"strconv"
 	"strings"
 )
@@ -31,7 +30,6 @@ type User struct {
 	ID					string 		`json:"id,omitempty",db:"id"`
 	Email	 			string		`json:"email",db:"email"`
 	DisplayName 		string		`json:"displayName",db:"display_name"`
-	URLAlias 			string 		`json:"urlAlias",db:"url_alias"`
 	PasswordDigest		string 		`json:"passwordDigest",db:"password_digest"`
 	ImageURL			string 		`json:"imageUrl",db:"image_url"`
 	VerifyEmailSentAt	time.Time	`json:"verifyEmailSentAt",db:"verify_email_sent_at"`
@@ -51,7 +49,7 @@ type Deal struct {
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
-	URLAlias 		string 		`json:"urlAlias",db:"url_alias"`
+	ThumbnailID		string 		`json:"thumbnailId",db:"thumbnail_id"`
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
@@ -142,6 +140,7 @@ func initRouter() {
 	api.HandleFunc("/deals", GetDeals).Methods("GET")
 	api.HandleFunc("/deal/{id}", use(GetDeal, auth)).Methods("GET")
 	api.HandleFunc("/deal/{id}", use(PostDeal, auth)).Methods("POST")
+	api.HandleFunc("/deal/{id}", use(UpdateDeal, auth)).Methods("PUT")
 	api.HandleFunc("/deal/{id}", use(DeleteDeal, auth)).Methods("DELETE")
 
 	// User
@@ -233,7 +232,7 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	postedAtColName := "posted_at"
 	cityIdColName := "city_id"
 
-	selectCols := `SELECT title, description, url_alias, 
+	selectCols := `SELECT title, description, thumbnail_id,
 		latitude, longitude, location_text, 
 		expected_price, category_id, poster_id, 
 		posted_at, updated_at, inactive_at, city_id FROM deals`
@@ -277,7 +276,7 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var deal Deal
-		err = rows.Scan(&deal.Title, &deal.Description, &deal.URLAlias,
+		err = rows.Scan(&deal.Title, &deal.Description, &deal.ThumbnailID,
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
 			&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
 			&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
@@ -294,7 +293,7 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	// set struct to pointer to omit on empty
 	// e.g. InactiveAt	 *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
 	if err != nil {
-		http.Error(w, "Can't marshal deals.", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	} else {
 		w.Write(dealArr)
 	}
@@ -302,7 +301,57 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 
 
 func GetDeal(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "The cake is a lie!")
+	vars := mux.Vars(r)
+	dealId := vars["id"]
+	if dealId == "" {
+		http.Error(w, "no id found", http.StatusBadRequest)
+		return
+	}
+	if len(dealId) != 36 {
+		http.Error(w, "invalid deal id", http.StatusBadRequest)
+		return
+	}
+
+	selectCols := `SELECT title, description, thumbnail_id, 
+		latitude, longitude, location_text, 
+		expected_price, category_id, poster_id, 
+		posted_at, updated_at, inactive_at, city_id FROM deals`
+
+	filterStr := fmt.Sprintf(" WHERE id = $1")
+	query := selectCols + filterStr
+	var deals []Deal
+	var rows *sql.Rows
+	rows, err := db.Query(query, dealId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var deal Deal
+		err = rows.Scan(&deal.Title, &deal.Description, &deal.ThumbnailID,
+			&deal.Latitude, &deal.Longitude, &deal.LocationText,
+			&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
+			&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		deals = append(deals, deal)
+	}
+	if len(deals) != 1 {
+		http.Error(w, "Deal not found", http.StatusInternalServerError)
+		return
+	}
+	dealArr, err := json.Marshal(deals[0])
+	if string(dealArr) == "null" {
+		dealArr = []byte("[]")
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Write(dealArr)
+	}
 }
 
 func PostDeal(w http.ResponseWriter, r *http.Request) {
@@ -352,12 +401,11 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Invalid submission.")
 		return
 	}
-	urlPostfix, err := shortid.Generate()
 	passwordDigest, err := HashPassword(creds.Password)
 	_, err = db.Query("insert into " +
-		"users (email, password_digest, display_name, url_alias) " +
-		"values ($1, $2, $3, $4)",
-		creds.Email, passwordDigest, creds.DisplayName, urlPostfix)
+		"users (email, password_digest, display_name) " +
+		"values ($1, $2, $3)",
+		creds.Email, passwordDigest, creds.DisplayName)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintln(w, "Server Error.")
