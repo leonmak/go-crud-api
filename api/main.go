@@ -52,19 +52,19 @@ type Deal struct {
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
-	// pointer for possible nil values
 	ThumbnailID		string 		`json:"thumbnailId",db:"thumbnail_id"`
+	// pointer for possible nil values
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
-	Latitude		float64		`json:"latitude,omitempty",db:"latitude"`
-	Longitude		float64		`json:"longitude,omitempty",db:"longitude"`
+	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
+	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
 	// exact location text, open in maps
-	LocationText	string 		`json:"locationText,omitempty",db:"location_text"`
-	ExpectedPrice	float32		`json:"expectedPrice,omitempty",db:"expected_price"`
+	LocationText	*string 	`json:"locationText,omitempty",db:"location_text"`
+	ExpectedPrice	*float32	`json:"expectedPrice,omitempty",db:"expected_price"`
 	CategoryID		uint16		`json:"categoryId",db:"category_id"`
 	PosterID		string		`json:"posterId",db:"poster_id"`
 	PostedAt		time.Time	`json:"postedAt",db:"posted_at"`
-	UpdatedAt		time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
-	InactiveAt		time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
+	UpdatedAt		*time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
+	InactiveAt		*time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
 	CityID			uint16		`json:"cityId",db:"city_id"`
 }
 
@@ -179,28 +179,50 @@ func auth(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func GetDeals(w http.ResponseWriter, r *http.Request) {
+	// static options
+	pageSize := 30
+	postedAtColName := "posted_at"
+
 	values := r.URL.Query()
 	var filterStrings []string
+
 	searchText := values.Get("search_text")
+	var queryParams []interface{}
+	filterStr := ""
+	if searchText == "" {
+		http.Error(w, "No search text", http.StatusInternalServerError)
+		return
+	} else {
+		titleFuzzyFilter := "title % $1"
+		filterStrings = append(filterStrings, titleFuzzyFilter)
+		queryParams = append(queryParams, searchText)
+	}
+
+	dateFilter := ""
 	after := values.Get("after")
 	before := values.Get("before")
+	hasAfter := after != ""
+	hasBefore := before != ""
 	iso8601Layout := "2006-01-02T15:04:05Z"
 	beforeT, err := time.Parse(iso8601Layout, before)
 	afterT, err := time.Parse(iso8601Layout, after)
-	isPaginating := len(before) > 0 && len(after) > 0
-	if isPaginating {
-		if after == "" || before == "" {
+	if hasAfter || hasBefore {
+		if hasAfter != hasBefore {
 			http.Error(w, "`before` or `after` is missing", http.StatusBadRequest)
-			return
-		}
-		if beforeT.After(afterT) {
-			http.Error(w, "`before` is later than `after`", http.StatusBadRequest)
 			return
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		if beforeT.After(afterT) {
+			http.Error(w, "`before` is later than `after`", http.StatusBadRequest)
+			return
+		}
+		// Get date filter string, after most recent, or between before least recent and after floor.
+		dateFilter = fmt.Sprintf("(%s > $2 OR %s < $3)", postedAtColName, postedAtColName)
+		filterStrings = append(filterStrings, dateFilter)
+		queryParams = append(queryParams, afterT, beforeT)
 	}
 
 	posterId := values.Get("poster_id")
@@ -230,15 +252,33 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, categoryFilter)
 	}
 
-	radiusKm, err := strconv.Atoi(values.Get("radius_km"))
-	if err != nil {
-		radiusKm = 10
+	radiusStr := values.Get("radius_km")
+	latStr, lngStr := values.Get("latitude"), values.Get("longitude")
+	radiusKm, errRadius := strconv.Atoi(radiusStr)
+	lat, errPoint := strconv.ParseFloat(latStr, 64)
+	lng, errPoint := strconv.ParseFloat(lngStr, 64)
+	hasLat := latStr != ""
+	hasLng := lngStr != ""
+	hasRadius := radiusStr != ""
+	parseRadiusErr := hasRadius && errRadius != nil
+	parsePointErr := hasLat && hasLng && errPoint != nil
+	missingRadiusErr := hasLat && hasLng && !hasRadius
+	missingLatLngErr := !hasLat && !hasLng && hasRadius || hasLat != hasLng
+	var errStr string
+	if parseRadiusErr || missingRadiusErr {
+		errStr = "Invalid radius"
 	}
-	lat, err := strconv.ParseFloat(values.Get("lat"), 64)
-	lng, err := strconv.ParseFloat(values.Get("lng"), 64)
-	if err == nil {
+	if parsePointErr || missingLatLngErr {
+		errStr = "Invalid lat/lng"
+	}
+	if errStr != "" {
+		http.Error(w, errStr, http.StatusBadRequest)
+		return
+	}
+	if hasLat && hasLng && hasRadius {
 		geogColName := "point"
-		distanceFilter := fmt.Sprintf("ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
+		distanceFilter := fmt.Sprintf(
+			"ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
 			geogColName, lng, lat, radiusKm)
 		filterStrings = append(filterStrings, distanceFilter)
 	}
@@ -251,10 +291,6 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, hideInactiveStr)
 	}
 
-	// static options
-	pageSize := 30
-	postedAtColName := "posted_at"
-
 	selectCols := `SELECT title, description, thumbnail_id,
 		latitude, longitude, location_text, 
 		expected_price, category_id, poster_id, 
@@ -262,25 +298,8 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 
 	var deals []Deal
 	var rows *sql.Rows
-	var queryParams []interface{}
-	filterStr := ""
-	if searchText == "" {
-		http.Error(w, "No search text", http.StatusInternalServerError)
-		return
-	} else {
-		titleFuzzyFilter := "title % $1"
-		filterStrings = append(filterStrings, titleFuzzyFilter)
-		queryParams = append(queryParams, searchText)
-	}
-	// NOTE: Ensure all user-defined strings are in query parameters
 
-	dateFilter := ""
-	if isPaginating {
-		// Get date filter string, after most recent, or between before least recent and after floor.
-		dateFilter = fmt.Sprintf("(%s > $2 OR %s < $3)", postedAtColName, postedAtColName)
-		filterStrings = append(filterStrings, dateFilter)
-		queryParams = append(queryParams, afterT, beforeT)
-	}
+	// NOTE: Ensure all user-defined strings are in query parameters
 
 	filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
 	orderByStr := fmt.Sprintf("ORDER BY %s DESC", postedAtColName)
@@ -371,15 +390,22 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func PostDeal(w http.ResponseWriter, r *http.Request) {
+func readUnstructuredJson(r *http.Request) (unstructuredJSON, error) {
 	var result unstructuredJSON
 	jsonRead, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal([]byte(jsonRead), &result)
+	return result, nil
+}
+
+func PostDeal(w http.ResponseWriter, r *http.Request) {
+	result, err := readUnstructuredJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	json.Unmarshal([]byte(jsonRead), &result)
-
 	var cols []string
 	var values []interface{}
 	var colsPresent = make(map[string]bool)
@@ -398,7 +424,7 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		case "expectedPrice": values = append(values, value.(float64))
 		default:
 			fmt.Fprintf(w, "Invalid field %s", key)
-			return
+			continue
 		}
 		// add to cols arr if valid field
 		snakeKey := strcase.ToSnake(key)
@@ -439,10 +465,45 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no id found", http.StatusBadRequest)
 		return
 	}
-
-	//newTitle := r.FormValue("title")
-	//
-	//db.QueryRow(`UPDATE deals SET`)
+	result, err := readUnstructuredJson(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var cols []string
+	var values []interface{}
+	for key, value := range result {
+		switch key {
+		case "title": values = append(values, value.(string))
+		case "description": values = append(values, value.(string))
+		case "categoryId": values = append(values, value.(float64))
+		case "thumbnailId": values = append(values, value.(string))
+		case "latitude": values = append(values, value.(float64))
+		case "longitude": values = append(values, value.(float64))
+		case "locationText": values = append(values, value.(string))
+		case "expectedPrice": values = append(values, value.(float64))
+		default:
+			fmt.Fprintf(w, "Invalid field %s", key)
+			return
+		}
+		// add to cols arr if valid field
+		snakeKey := strcase.ToSnake(key)
+		cols = append(cols, snakeKey)
+	}
+	updateStrings := make([]string, len(cols))
+	for i, col := range cols {
+		updateStrings[i] = fmt.Sprintf("%s = $%d", col, i+1)
+	}
+	updateStr := strings.Join(updateStrings, ",")
+	query := fmt.Sprintf(`UPDATE deals SET %s WHERE id = $%d RETURNING id`, updateStr, len(cols)+1)
+	values = append(values, dealId)
+	var dealIdReturned string
+	err = db.QueryRow(query, values...).Scan(&dealIdReturned)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte(dealIdReturned))
 }
 
 func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {

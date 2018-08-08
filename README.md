@@ -19,22 +19,24 @@ Routes:
 - `/deals`
     - GET
         - `search_text`
-            - string, fuzzy text search on `title` column
+            - `string`, fuzzy text search on `title` column
         - `city_id`
-            - serial, reference cities(id)
+            - `serial`, reference cities(id)
         - `poster_id` (optional)
-            - string
+            - `string`
         - `category_id` (optional)
-            - serial
+            - `serial`
         - `after`, `before` (optional)
-            - iso8601 format, e.g. `2011-10-05T14:48:00.000Z`
-            - must use both `after` & `before` if used (for paginating)  
+            - `string` iso8601 format, e.g. `2011-10-05T14:48:00.000Z`
+            - for paginating - after most recent, and before least recent item 
+            - must use both `after` & `before` if used  
         - `show_inactive` (optional)
-            - bool, e.g. `true`(show all) / `false` (default, show `inactive_at` is null)
+            - `bool`, e.g. `true`(show all) / `false` (default, show `inactive_at` is null)
         - `lat`, `lng` (optional)
-            - float64, up to 64 digits, e.g. `1.3521`
+            - `float64`, up to 64 digits, e.g. `1.3521`
+            - requires `radius_km`
         - `radius_km` (optional)
-            - int, or default 10
+            - `int`
             - requires `lat` & `lng`
 - `/deal`
     - POST
