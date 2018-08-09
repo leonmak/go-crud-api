@@ -25,7 +25,9 @@ CREATE TABLE deals
   longitude       float,
   point           geography,
   location_text   text,
-  expected_price  decimal(15,2),
+  total_price     decimal(15,2),
+  total_savings   decimal(15,2),
+  quantity        int,
   category_id     serial references deal_categories(id) not null,
   poster_id       uuid references users(id) not null,
   posted_at       timestamp default now(),
@@ -40,12 +42,12 @@ CREATE TABLE deals
 INSERT INTO deals (
   id, title, description, thumbnail_id,
   latitude, longitude, point,
-  location_text, expected_price,
+  location_text, total_price, total_savings,
   category_id, poster_id, city_id)
 VALUES (
   uuid_generate_v4(), 'deal1', 'some shirt', 'thumb',
   1.3521, 103.8198, ST_MakePoint(103.8198, 1.3521),
-  'singapura mall', 1.4,
+  'singapura mall', 40, 10.5,
   1, '93dda1a7-67a4-4e81-abcf-f3a2aba687f4', 37541);
 
 CREATE TABLE deal_memberships

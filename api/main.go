@@ -37,7 +37,7 @@ type User struct {
 	ImageURL			string 		`json:"imageUrl",db:"image_url"`
 	VerifyEmailSentAt	time.Time	`json:"verifyEmailSentAt",db:"verify_email_sent_at"`
 	VerifiedAt			bool		`json:"verifiedAt",db:"verified_at"`
-	CityID				uint16		`json:"cityId",db:"city_id"`
+	CityID				uint		`json:"cityId",db:"city_id"`
 }
 
 // Temp struct For marshalling login / register requests
@@ -52,27 +52,29 @@ type Deal struct {
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
-	ThumbnailID		string 		`json:"thumbnailId",db:"thumbnail_id"`
+	ThumbnailID		*string 	`json:"thumbnailId,omitempty",db:"thumbnail_id"`
 	// pointer for possible nil values
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
 	// exact location text, open in maps
 	LocationText	*string 	`json:"locationText,omitempty",db:"location_text"`
-	ExpectedPrice	*float32	`json:"expectedPrice,omitempty",db:"expected_price"`
-	CategoryID		uint16		`json:"categoryId",db:"category_id"`
+	TotalPrice		*float32	`json:"totalPrice,omitempty",db:"total_price"`
+	TotalSavings	*float32	`json:"totalSavings,omitempty",db:"total_savings"`
+	Quantity		*uint		`json:"quantity,omitempty",db:"quantity"`
+	CategoryID		uint		`json:"categoryId",db:"category_id"`
 	PosterID		string		`json:"posterId",db:"poster_id"`
 	PostedAt		time.Time	`json:"postedAt",db:"posted_at"`
 	UpdatedAt		*time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
 	InactiveAt		*time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
-	CityID			uint16		`json:"cityId",db:"city_id"`
+	CityID			uint		`json:"cityId",db:"city_id"`
 }
 
 type DealCategory struct {
-	ID				uint16 	`json:"id",db:"id"`
+	ID				uint 	`json:"id",db:"id"`
 	Name 			string 	`json:"name",db:"name"`
-	MaxImages		uint8	`json:"maxImages",db:"max_images"`
-	MaxActiveDays	uint8	`json:"maxActiveDays",db:"max_active_days"`
+	MaxImages		uint	`json:"maxImages",db:"max_images"`
+	MaxActiveDays	uint	`json:"maxActiveDays",db:"max_active_days"`
 }
 
 type DealMembership struct {
@@ -107,19 +109,19 @@ type DealComment struct {
 
 // User & Deal has a city_id, consider sharding on cities' country / state
 type City struct {
-	ID 		uint16	`json:"id",db:"id"`
+	ID 		uint	`json:"id",db:"id"`
 	Name	string 	`json:"name",db:"name"`
-	StateID	uint16	`json:"stateId",db:"state_id"`
+	StateID	uint	`json:"stateId",db:"state_id"`
 }
 
 type State struct {
-	ID 			uint16	`json:"id",db:"id"`
+	ID 			uint	`json:"id",db:"id"`
 	Name		string 	`json:"name",db:"name"`
-	CountryID	uint16	`json:"countryId",db:"country_id"`
+	CountryID	uint	`json:"countryId",db:"country_id"`
 }
 
 type Country struct {
-	ID 			uint8	`json:"id",db:"id"`
+	ID 			uint	`json:"id",db:"id"`
 	Name		string 	`json:"name",db:"name"`
 	SortName	string	`json:"sortname",db:"sortname"`
 }
@@ -293,8 +295,9 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 
 	selectCols := `SELECT title, description, thumbnail_id,
 		latitude, longitude, location_text, 
-		expected_price, category_id, poster_id, 
-		posted_at, updated_at, inactive_at, city_id FROM deals`
+		total_price, total_savings, quantity, 
+		category_id, poster_id, posted_at, 
+		updated_at, inactive_at, city_id FROM deals`
 
 	var deals []Deal
 	var rows *sql.Rows
@@ -318,8 +321,9 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		var deal Deal
 		err = rows.Scan(&deal.Title, &deal.Description, &deal.ThumbnailID,
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
-			&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
-			&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
+			&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
+			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
+			&deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -362,8 +366,9 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 
 	selectCols := `SELECT title, description, thumbnail_id, 
 		latitude, longitude, location_text, 
-		expected_price, category_id, poster_id, 
-		posted_at, updated_at, inactive_at, city_id FROM deals`
+		total_price, total_savings, quantity, 
+		category_id, poster_id, posted_at, 
+		updated_at, inactive_at, city_id FROM deals`
 
 	filterStr := fmt.Sprintf(" WHERE id = $1")
 	query := selectCols + filterStr
@@ -371,8 +376,9 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRow(query, dealId).Scan(
 		&deal.Title, &deal.Description, &deal.ThumbnailID,
 		&deal.Latitude, &deal.Longitude, &deal.LocationText,
-		&deal.ExpectedPrice, &deal.CategoryID, &deal.PosterID,
-		&deal.PostedAt, &deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
+		&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
+		&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
+		&deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -406,38 +412,48 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var cols []string
-	var values []interface{}
-	var colsPresent = make(map[string]bool)
+	colValues := make(map[string]interface{})
+	lat := float64(-1)
+	lng := float64(-1)
 	for key, value := range result {
+		snakeKey := strcase.ToSnake(key)
 		switch key {
-		case "title": values = append(values, value.(string))
-		case "description": values = append(values, value.(string))
-		case "categoryId": values = append(values, value.(float64))
-		case "posterId": values = append(values, value.(string))
-		case "cityId": values = append(values, value.(float64))
-		// nullable values
-		case "thumbnailId": values = append(values, value.(string))
-		case "latitude": values = append(values, value.(float64))
-		case "longitude": values = append(values, value.(float64))
-		case "locationText": values = append(values, value.(string))
-		case "expectedPrice": values = append(values, value.(float64))
+		case "title": fallthrough
+		case "description": fallthrough
+		case "posterId": fallthrough
+		case "thumbnailId": fallthrough
+		case "locationText": colValues[snakeKey] = value.(string)
+		case "latitude": fallthrough
+		case "longitude": fallthrough
+		case "categoryId": fallthrough
+		case "cityId": fallthrough
+		case "totalPrice": fallthrough
+		case "quantity": fallthrough
+		case "totalSavings": colValues[snakeKey] = value.(float64)
 		default:
 			fmt.Fprintf(w, "Invalid field %s", key)
-			continue
+			return
 		}
-		// add to cols arr if valid field
-		snakeKey := strcase.ToSnake(key)
-		cols = append(cols, snakeKey)
-		colsPresent[snakeKey] = true
 	}
 	// check if not null fields are all present
 	reqCols := []string{"title", "description", "category_id", "poster_id", "city_id"}
 	for _, reqCol := range reqCols {
-		if !colsPresent[reqCol] {
+		if colValues[reqCol] == nil {
 			http.Error(w, fmt.Sprintf("Missing required field %s", reqCol), http.StatusBadRequest)
 			return
 		}
+	}
+	var cols []string
+	var vals []interface{}
+	for col, val := range colValues {
+		cols = append(cols, col)
+		vals = append(vals, val)
+	}
+	hasLat := colValues["latitude"] != nil
+	hasLng := colValues["longitude"] != nil
+	if (hasLat || hasLng) && hasLat != hasLng {
+		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
+		return
 	}
 	colsStr := strings.Join(cols, ",")
 	valuePlaceholders := make([]string, len(cols))
@@ -445,12 +461,16 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		valuePlaceholders[i] = fmt.Sprintf("$%d", i+1)
 	}
 	valuePlaceholderStr := strings.Join(valuePlaceholders, ",")
+	if hasLat && hasLng {
+		colsStr += ",point"
+		valuePlaceholderStr += fmt.Sprintf(",ST_MakePoint(%.6f,%.6f)", lng, lat)
+	}
 	insertStr := fmt.Sprintf(`INSERT INTO deals (%s)`, colsStr)
 	valuesStr := fmt.Sprintf(`VALUES (%s)`, valuePlaceholderStr)
 	returnStr := fmt.Sprintf("RETURNING %s", "id")
 	query := strings.Join([]string{insertStr, valuesStr, returnStr}, " ")
 	var dealId string
-	err = db.QueryRow(query, values...).Scan(&dealId)
+	err = db.QueryRow(query, vals...).Scan(&dealId)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -481,7 +501,9 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		case "latitude": values = append(values, value.(float64))
 		case "longitude": values = append(values, value.(float64))
 		case "locationText": values = append(values, value.(string))
-		case "expectedPrice": values = append(values, value.(float64))
+		case "totalPrice": values = append(values, value.(float64))
+		case "totalSavings": values = append(values, value.(float64))
+		case "quantity": values = append(values, int(value.(float64)))
 		default:
 			fmt.Fprintf(w, "Invalid field %s", key)
 			return
@@ -490,6 +512,8 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		snakeKey := strcase.ToSnake(key)
 		cols = append(cols, snakeKey)
 	}
+	cols = append(cols, "updated_at")
+	values = append(values, time.Now())
 	updateStrings := make([]string, len(cols))
 	for i, col := range cols {
 		updateStrings[i] = fmt.Sprintf("%s = $%d", col, i+1)
@@ -513,7 +537,8 @@ func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no id found", http.StatusBadRequest)
 		return
 	}
-	db.QueryRow(`UPDATE deals SET inactive_at = $1 WHERE id = $2`, time.Now(), dealId)
+	db.QueryRow(`UPDATE deals SET inactive_at = $1 WHERE id = $2`,
+		time.Now(), dealId)
 }
 
 func JoinDeal(w http.ResponseWriter, r *http.Request) {
