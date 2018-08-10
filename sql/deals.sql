@@ -20,7 +20,7 @@ CREATE TABLE deals
   id              uuid primary key default uuid_generate_v4(),
   title           text not null,
   description     text not null,
-  thumbnail_id    text,
+  thumbnail_id    uuid references deal_images(id),
   latitude        float,
   longitude       float,
   point           geography,
@@ -52,37 +52,43 @@ VALUES (
 
 CREATE TABLE deal_memberships
 (
-  id          bigserial primary key,
+  id          uuid primary key default uuid_generate_v4(),
   user_id     uuid references users(id),
   deal_id     uuid references deals(id),
   joined_at   timestamp default now(),
-  left_at     timestamp
+  left_at     timestamp,
+  UNIQUE(user_id, deal_id)
 );
 
 CREATE TABLE deal_images
 (
-  id          bigserial primary key,
+  id          uuid primary key default uuid_generate_v4(),
   deal_id     uuid references deals(id),
-  image_url   text,
+  image_url   text not null,
   poster_id   uuid references users(id),
   posted_at   timestamp default now(),
-  CHECK (length(image_url) <= 255)
+  removed_at  timestamp,
+  CHECK (length(image_url) <= 256) -- refer to cloudinary public id max len
 );
 
-CREATE TABLE deal_votes
+CREATE TABLE deal_likes
 (
-  id          bigserial primary key,
+  id          uuid primary key default uuid_generate_v4(),
   deal_id     uuid references deals(id),
   user_id     uuid references users(id),
-  posted_at   timestamp default now()
+  posted_at   timestamp default now(),
+  is_upvote   bool,
+  -- nullable for no vote
+  UNIQUE(user_id, deal_id)
 );
 
 CREATE TABLE deal_comments
 (
-  id          bigserial primary key,
+  id          uuid primary key default uuid_generate_v4(),
   deal_id     uuid references deals(id),
   user_id     uuid references users(id),
-  comment     text not null,
+  comment_str text not null,
   posted_at   timestamp default now(),
-  CHECK (length(comment) <= 255)
+  removed_at  timestamp,
+  CHECK (length(comment_str) <= 256)
 );

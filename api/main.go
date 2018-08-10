@@ -21,6 +21,7 @@ import (
 	"strings"
 	"io/ioutil"
 	"github.com/iancoleman/strcase"
+	"errors"
 )
 
 // TODO: Implement:
@@ -29,15 +30,9 @@ import (
 
 // Maps to Users table
 type User struct {
-	// uuid for dynamic tables for easier sharding
-	ID					string 		`json:"id,omitempty",db:"id"`
-	Email	 			string		`json:"email",db:"email"`
-	DisplayName 		string		`json:"displayName",db:"display_name"`
-	PasswordDigest		string 		`json:"passwordDigest",db:"password_digest"`
-	ImageURL			string 		`json:"imageUrl",db:"image_url"`
-	VerifyEmailSentAt	time.Time	`json:"verifyEmailSentAt",db:"verify_email_sent_at"`
-	VerifiedAt			bool		`json:"verifiedAt",db:"verified_at"`
-	CityID				uint		`json:"cityId",db:"city_id"`
+	ID				string 		`json:"id",db:"id"`
+	DisplayName 	string		`json:"displayName",db:"display_name"`
+	ImageURL		string 		`json:"imageUrl",db:"image_url"`
 }
 
 // Temp struct For marshalling login / register requests
@@ -52,8 +47,9 @@ type Deal struct {
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
-	ThumbnailID		*string 	`json:"thumbnailId,omitempty",db:"thumbnail_id"`
 	// pointer for possible nil values
+	// first image in upload is thumbnailID
+	ThumbnailID		*string 	`json:"thumbnailId,omitempty",db:"thumbnail_id"`
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
@@ -78,29 +74,28 @@ type DealCategory struct {
 }
 
 type DealMembership struct {
-	UserID		string		`json:"userId",db:"user_id"`
+	User		User		`json:"user"`
 	DealID		string		`json:"dealId",db:"deal_id"`
 	JoinedAt	time.Time	`json:"joinedAt",db:"joined_at"`
-	LeftAt		time.Time	`json:"leftAt",db:"left_at"`
+	LeftAt		*time.Time	`json:"leftAt,omitEmpty",db:"left_at"`
 }
 
 type DealImage struct {
-	ID			string 		`json:"id",db:"id"`
-	DealID		string		`json:"dealId",db:"deal_id"`
 	ImageURL	url.URL		`json:"imageUrl",db:"image_url"`
 	PosterID	string		`json:"posterId",db:"poster_id"`
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
 }
 
-type DealVote struct {
+type DealLikes struct {
 	ID			string 		`json:"id"`
 	DealID		string		`json:"dealId",db:"deal_id"`
 	UserID		string		`json:"userId",db:"user_id"`
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
+	IsUpVote	bool		`json:"isUpvote",db:"is_upvote"`
 }
 
 type DealComment struct {
-	ID			string 		`json:"id",db:"id"`
+	Username	string 		`json:"username"`
 	DealID		string		`json:"dealId",db:"deal_id"`
 	UserID		string 		`json:"userId",db:"user_id"`
 	Comment		string		`json:"comment",db:"comment"`
@@ -145,14 +140,32 @@ func initRouter() {
 	api := router.PathPrefix("/api").Subrouter()
 
 	// Deal
-	api.HandleFunc("/deals", GetDeals).Methods("GET")
-	api.HandleFunc("/deal", PostDeal).Methods("POST")
-	api.HandleFunc("/deal/{id}", use(HandleDeal, auth)).Methods("GET", "PUT", "DELETE")
+	api.HandleFunc("/deals", GetDeals).Methods(http.MethodGet)
+	api.HandleFunc("/deals", use(PostDeal, auth)).Methods(http.MethodPost)
+	api.HandleFunc("/deal/{dealId}", use(HandleDeal, auth)).Methods(
+		http.MethodGet, http.MethodPut, http.MethodDelete)
+
+	api.HandleFunc("/deal/{dealId}/memberships", GetDealMembersByDealId).Methods(http.MethodGet)
+	api.HandleFunc("/deal/{dealId}/membership/{userId}", use(HandleDealMembership, auth)).Methods(
+		http.MethodPost, http.MethodDelete)
+
+	api.HandleFunc("/deal/{dealId}/likes", GetDealLikeSummaryByDealId).Methods(http.MethodGet)
+	api.HandleFunc("/deal/{dealId}/like/{userId}", use(HandleDealLike, auth)).Methods(
+		http.MethodPost, http.MethodDelete)
+
+	api.HandleFunc("/deal/{dealId}/images", GetDealImageUrlsByDealId).Methods(http.MethodGet)
+	api.HandleFunc("/deal/{dealId}/image/{userId}", use(HandleDealImage, auth)).Methods(
+		http.MethodPost, http.MethodDelete)
+
+	api.HandleFunc("/deal/{dealId}/comments", GetDealCommentsByDealId).Methods(http.MethodGet)
+	api.HandleFunc("/deal/{dealId}/comment/{userId}", use(HandleDealComment, auth)).Methods(
+		http.MethodPost, http.MethodDelete)
 
 	// User
-	api.HandleFunc("/register", CreateUser).Methods("POST")
-	api.HandleFunc("/login", LoginUser).Methods("POST")
-	api.HandleFunc("/logout", use(LogoutUser, auth)).Methods("POST")
+	// TODO: Get another user's profile stats
+	api.HandleFunc("/register", CreateUser).Methods(http.MethodPost)
+	api.HandleFunc("/login", LoginUser).Methods(http.MethodPost)
+	api.HandleFunc("/logout", use(LogoutUser, auth)).Methods(http.MethodPost)
 
 	fmt.Printf("listening on %d\n", conf.Port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", conf.Port), api))
@@ -348,19 +361,14 @@ func HandleDeal(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet: GetDeal(w, r)
 	case http.MethodPut: UpdateDeal(w, r)
 	case http.MethodDelete: SetInactiveDeal(w, r)
-	default: fmt.Fprintf(w, "Method not supported %s", r.Method)
+	default: http.Error(w, fmt.Sprintf("Method not supported %s", r.Method), http.StatusBadRequest)
 	}
 }
 
 func GetDeal(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	dealId := vars["id"]
-	if dealId == "" {
-		http.Error(w, "no id found", http.StatusBadRequest)
-		return
-	}
-	if !utils.IsValidUUID(dealId) {
-		http.Error(w, "invalid deal id", http.StatusBadRequest)
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -373,7 +381,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	filterStr := fmt.Sprintf(" WHERE id = $1")
 	query := selectCols + filterStr
 	var deal Deal
-	err := db.QueryRow(query, dealId).Scan(
+	err = db.QueryRow(query, dealId).Scan(
 		&deal.Title, &deal.Description, &deal.ThumbnailID,
 		&deal.Latitude, &deal.Longitude, &deal.LocationText,
 		&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
@@ -413,8 +421,8 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	colValues := make(map[string]interface{})
-	lat := float64(-1)
-	lng := float64(-1)
+	var ok bool
+	var val interface{}
 	for key, value := range result {
 		snakeKey := strcase.ToSnake(key)
 		switch key {
@@ -422,19 +430,28 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		case "description": fallthrough
 		case "posterId": fallthrough
 		case "thumbnailId": fallthrough
-		case "locationText": colValues[snakeKey] = value.(string)
+		case "locationText":
+			val, ok = value.(string)
+			colValues[snakeKey] = val
 		case "latitude": fallthrough
 		case "longitude": fallthrough
 		case "categoryId": fallthrough
 		case "cityId": fallthrough
 		case "totalPrice": fallthrough
-		case "quantity": fallthrough
-		case "totalSavings": colValues[snakeKey] = value.(float64)
+		case "totalSavings": fallthrough
+		case "quantity":
+			val, ok = value.(float64)
+			colValues[snakeKey] = val
 		default:
-			fmt.Fprintf(w, "Invalid field %s", key)
+			http.Error(w, fmt.Sprintf("Invalid key '%s'", key), http.StatusBadRequest)
+			return
+		}
+		if !ok {
+			http.Error(w, fmt.Sprintf("Invalid value '%s'", val), http.StatusBadRequest)
 			return
 		}
 	}
+
 	// check if not null fields are all present
 	reqCols := []string{"title", "description", "category_id", "poster_id", "city_id"}
 	for _, reqCol := range reqCols {
@@ -463,7 +480,8 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 	valuePlaceholderStr := strings.Join(valuePlaceholders, ",")
 	if hasLat && hasLng {
 		colsStr += ",point"
-		valuePlaceholderStr += fmt.Sprintf(",ST_MakePoint(%.6f,%.6f)", lng, lat)
+		valuePlaceholderStr += fmt.Sprintf(",ST_MakePoint(%.6f,%.6f)",
+			colValues["latitude"], colValues["longitude"])
 	}
 	insertStr := fmt.Sprintf(`INSERT INTO deals (%s)`, colsStr)
 	valuesStr := fmt.Sprintf(`VALUES (%s)`, valuePlaceholderStr)
@@ -490,36 +508,47 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var cols []string
 	var values []interface{}
+	var ok bool
+	var val interface{}
+	colValues := make(map[string]interface{})
 	for key, value := range result {
+		snakeKey := strcase.ToSnake(key)
 		switch key {
-		case "title": values = append(values, value.(string))
-		case "description": values = append(values, value.(string))
-		case "categoryId": values = append(values, value.(float64))
-		case "thumbnailId": values = append(values, value.(string))
-		case "latitude": values = append(values, value.(float64))
-		case "longitude": values = append(values, value.(float64))
-		case "locationText": values = append(values, value.(string))
-		case "totalPrice": values = append(values, value.(float64))
-		case "totalSavings": values = append(values, value.(float64))
-		case "quantity": values = append(values, int(value.(float64)))
+		case "title": fallthrough
+		case "description": fallthrough
+		case "thumbnailId": fallthrough
+		case "locationText":
+			val, ok = value.(string)
+			colValues[snakeKey] = val
+		case "latitude": fallthrough
+		case "longitude": fallthrough
+		case "categoryId": fallthrough
+		case "cityId": fallthrough
+		case "totalPrice": fallthrough
+		case "totalSavings": fallthrough
+		case "quantity":
+			val, ok = value.(float64)
+			colValues[snakeKey] = val
 		default:
-			fmt.Fprintf(w, "Invalid field %s", key)
+			http.Error(w, fmt.Sprintf("Invalid key '%s'", key), http.StatusBadRequest)
 			return
 		}
-		// add to cols arr if valid field
-		snakeKey := strcase.ToSnake(key)
-		cols = append(cols, snakeKey)
+		if !ok {
+			http.Error(w, fmt.Sprintf("Invalid value '%s'", val), http.StatusBadRequest)
+			return
+		}
 	}
-	cols = append(cols, "updated_at")
-	values = append(values, time.Now())
-	updateStrings := make([]string, len(cols))
-	for i, col := range cols {
+	colValues["updated_at"] = time.Now()
+	updateStrings := make([]string, len(colValues))
+	i := 0
+	for col, val := range colValues {
 		updateStrings[i] = fmt.Sprintf("%s = $%d", col, i+1)
+		values = append(values, val)
+		i++
 	}
 	updateStr := strings.Join(updateStrings, ",")
-	query := fmt.Sprintf(`UPDATE deals SET %s WHERE id = $%d RETURNING id`, updateStr, len(cols)+1)
+	query := fmt.Sprintf(`UPDATE deals SET %s WHERE id = $%d RETURNING id`, updateStr, len(colValues)+1)
 	values = append(values, dealId)
 	var dealIdReturned string
 	err = db.QueryRow(query, values...).Scan(&dealIdReturned)
@@ -530,31 +559,283 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(dealIdReturned))
 }
 
-func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
+func getURLParamUUID(paramName string, r *http.Request) (string, error) {
+	param, err := getURLParam(paramName, r)
+	if err != nil {
+		return "", err
+	}
+	if !utils.IsValidUUID(param) {
+		return "", fmt.Errorf("invalid param name '%s", param)
+	}
+	return param, nil
+}
+
+func getURLParam(param string, r *http.Request) (string, error) {
 	vars := mux.Vars(r)
-	dealId := vars["id"]
-	if dealId == "" {
-		http.Error(w, "no id found", http.StatusBadRequest)
+	paramVal := vars[param]
+	if paramVal == "" {
+		return paramVal, errors.New("no '%s' param found")
+	}
+	return paramVal, nil
+}
+
+func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	db.QueryRow(`UPDATE deals SET inactive_at = $1 WHERE id = $2`,
-		time.Now(), dealId)
+	_, err = db.Query(`UPDATE deals SET inactive_at = $1 WHERE id = $2`, time.Now(), dealId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
-func JoinDeal(w http.ResponseWriter, r *http.Request) {
-
+func GetDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var dealMembers []DealMembership
+	rows, err := db.Query(`SELECT u.id, u.display_name, u.image_url, deal_id, joined_at
+		FROM users u 
+		INNER JOIN deal_memberships m on u.id = m.user_id
+		WHERE left_at ISNULL AND m.deal_id = $1`, dealId)
+	defer rows.Close()
+	for rows.Next() {
+		var member DealMembership
+		rows.Scan(&member.User.ID, &member.User.DisplayName, &member.User.ImageURL,
+			&member.DealID, &member.JoinedAt)
+		dealMembers = append(dealMembers, member)
+	}
+	membersBytes, err := json.Marshal(dealMembers)
+	if err != nil {
+		http.Error(w, "invalid json", http.StatusUnprocessableEntity)
+		return
+	}
+	w.Write(membersBytes)
 }
 
-func AddImageToDeal(w http.ResponseWriter, r *http.Request) {
-
+func HandleDealMembership(w http.ResponseWriter, r *http.Request) {
+	dealId, err := getURLParamUUID("dealId", r)
+	userId, err := getURLParamUUID("userId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var dealMembershipId string
+	switch r.Method {
+	case http.MethodPost: dealMembershipId, err = JoinDeal(dealId, userId)
+	case http.MethodDelete: dealMembershipId, err = LeaveDeal(dealId, userId)
+	default: http.Error(w, fmt.Sprintf("Method not supported %s", r.Method), http.StatusBadRequest)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else {
+		w.Write([]byte(fmt.Sprintf("Updated %s membership for user '%s' in deal '%s'",
+			dealMembershipId, userId, dealId)))
+	}
 }
 
-func VoteOnDeal(w http.ResponseWriter, r *http.Request) {
-
+func JoinDeal(dealId string, userId string) (dealMembershipId string, err error) {
+	err = db.QueryRow(`INSERT 
+		INTO deal_memberships(user_id, deal_id, joined_at) 
+		VALUES ($1, $2, $3)
+		ON CONFLICT ON CONSTRAINT deal_memberships_user_id_deal_id_key DO NOTHING
+		RETURNING id`, userId, dealId, time.Now()).Scan(&dealMembershipId)
+	return dealMembershipId, err
 }
 
-func CommentOnDeal(w http.ResponseWriter, r *http.Request) {
+func LeaveDeal(dealId string, userId string) (dealMembershipId string, err error) {
+	err = db.QueryRow(`UPDATE  
+		deal_memberships SET left_at = $3 
+		WHERE user_id = $1 AND deal_id = $2
+		RETURNING id`, userId, dealId, time.Now()).Scan(&dealMembershipId)
+	return dealMembershipId, err
+}
 
+func GetDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var imageUrls []string
+	rows, err := db.Query(`SELECT image_url from deal_images WHERE deal_id = $1`, dealId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var imageUrl string
+		if err := rows.Scan(&imageUrl); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		imageUrls = append(imageUrls, imageUrl)
+	}
+	imageURLStr, err := json.Marshal(imageUrls)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(imageURLStr)
+}
+
+func HandleDealImage(w http.ResponseWriter, r *http.Request) {
+	result, err := readUnstructuredJson(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var dealImageId string
+	switch r.Method {
+	case http.MethodPost:
+		dealId := result["dealId"].(string)
+		imageUrl := result["imageUrl"].(string)
+		posterId := result["posterId"].(string)
+		_, err := url.Parse(imageUrl)
+		if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(posterId) || err != nil {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		err = db.QueryRow("INSERT INTO deal_images(deal_id, poster_id, image_url) VALUES($1, $2, $3)",
+			dealId, posterId, imageUrl).Scan(&dealImageId)
+	case http.MethodDelete:
+		dealImageId := result["dealImageId"].(string)
+		if !utils.IsValidUUID(dealImageId) {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		err = db.QueryRow("UPDATE deal_images SET removed_at = $1", time.Now).Scan(&dealImageId)
+	default: http.Error(w, fmt.Sprintf("Method not supported %s", r.Method), http.StatusBadRequest)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte("Update deal image"))
+}
+
+func GetDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var upVotes int
+	var downVotes int
+	err = db.QueryRow(`SELECT 
+		count(nullif(is_upvote = true, true)),
+		count(nullif(is_upvote = false, true))
+		FROM deal_likes
+		WHERE deal_id = $1`, dealId).Scan(&upVotes, &downVotes)
+	type result struct {
+		upVotes int
+		downVotes int
+	}
+	res := &result{upVotes: upVotes, downVotes: downVotes}
+	resStr, err := json.Marshal(res)
+	if err != nil {
+		http.Error(w, "invalid json", http.StatusUnprocessableEntity)
+	}
+	w.Write(resStr)
+}
+
+func HandleDealLike(w http.ResponseWriter, r *http.Request) {
+	result, err := readUnstructuredJson(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dealId, ok := result["dealId"].(string)
+	userId, ok := result["userId"].(string)
+	upVote, ok := result["upVote"].(bool)
+	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !upVote || !ok {
+		http.Error(w, "invalid value", http.StatusBadRequest)
+		return
+	}
+	switch r.Method {
+	case http.MethodPost: // upsert
+		err = db.QueryRow(`INSERT INTO deal_likes(user_id, deal_id, is_upvote)
+			VALUES($1, $2, $3)
+			ON CONFLICT ON CONSTRAINT deal_likes_user_id_deal_id_key DO UPDATE SET is_upvote = $3
+			RETURNING id`, userId, dealId, upVote).Scan(&dealId)
+	case http.MethodDelete:
+		err = db.QueryRow(`UPDATE deal_likes SET is_upvote = NULL 
+			WHERE user_id = $1 AND deal_id = $2 RETURNING id`, userId, dealId).Scan(&dealId)
+	default:
+		http.Error(w, "Method not supported", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte(fmt.Sprintf("Updated user '%s' like status for deal '%s'", userId, dealId)))
+}
+
+func GetDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var dealComments []DealComment
+	rows, err := db.Query(`SELECT deal_id, user_id, u.display_name as user_name, comment_str, posted_at 
+ 			FROM deal_comments d
+ 			INNER JOIN users u ON u.id = d.user_id 
+			WHERE removed_at ISNULL AND deal_id = $1`, dealId)
+	defer rows.Close()
+	for rows.Next() {
+		var dealComment DealComment
+		err = rows.Scan(&dealComment.DealID, &dealComment.UserID, &dealComment.Username,
+			&dealComment.Comment, &dealComment.PostedAt)
+		dealComments = append(dealComments, dealComment)
+	}
+	dealCommentBytes, err := json.Marshal(dealComments)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.Write(dealCommentBytes)
+}
+
+func HandleDealComment(w http.ResponseWriter, r *http.Request) {
+	result, err := readUnstructuredJson(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dealId, ok := result["dealId"].(string)
+	userId, ok := result["userId"].(string)
+	comment, ok := result["comment"].(string)
+	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !ok || len(comment) > 256 {
+		http.Error(w, "invalid input", http.StatusBadRequest)
+		return
+	}
+	var dealCommentId string
+	switch r.Method {
+	case http.MethodPost:
+		err = db.QueryRow(`INSERT INTO deal_comments(user_id, deal_id, comment_str) 
+			VALUES($1, $2, $3)
+			RETURNING id`,
+			userId, dealId, comment).Scan(&dealCommentId)
+	case http.MethodPut:
+		err = db.QueryRow(`UPDATE deal_comments SET comment_str = $1 WHERE user_id = $2 RETURNING id`,
+			comment, userId).Scan(dealCommentId)
+	case http.MethodDelete:
+		err = db.QueryRow(`UPDATE deal_comments SET removed_at = $1 RETURNING id`,
+			time.Now()).Scan(&dealCommentId)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte(fmt.Sprintf("Updated user '%s' comment for deal '%s'", userId, dealId)))
 }
 
 func LogoutUser(w http.ResponseWriter, r *http.Request) {
@@ -577,9 +858,9 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	passwordDigest, err := HashPassword(creds.Password)
-	_, err = db.Query("insert into " +
-		"users (email, password_digest, display_name) " +
-		"values ($1, $2, $3)",
+	_, err = db.Query("INSERT INTO " +
+		"USERS (email, password_digest, display_name) " +
+		"VALUES ($1, $2, $3)",
 		creds.Email, passwordDigest, creds.DisplayName)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
