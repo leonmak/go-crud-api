@@ -20,6 +20,14 @@ CREATE TABLE users
 );
 
 CREATE UNIQUE INDEX users_unique_lower_email_idx ON users (lower(email));
+BEGIN;
+DO $$
+  DECLARE
+    vUserId uuid := 'eab30e15-fded-46fc-93f4-af0cb2a0ebd8';
+  BEGIN
+    INSERT INTO users (id, email, password_digest, display_name, city_id)
+    VALUES (vUserId, 'leon.mak@u.nus.edu', 'password_d','leon', 37541);
+  END
+$$;
+COMMIT;
 
-INSERT INTO users (id, email, password_digest, display_name, city_id)
-VALUES ('93dda1a7-67a4-4e81-abcf-f3a2aba687f4', 'leon.mak@u.nus.edu', 'password_d','leon', 37541);

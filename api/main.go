@@ -44,6 +44,7 @@ type UserCredentials struct {
 
 // Maps to Deals table
 type Deal struct {
+	ID				string 		`json:"id",db:"id"`
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
@@ -306,7 +307,7 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, hideInactiveStr)
 	}
 
-	selectCols := `SELECT title, description, thumbnail_id,
+	selectCols := `SELECT id, title, description, thumbnail_id,
 		latitude, longitude, location_text, 
 		total_price, total_savings, quantity, 
 		category_id, poster_id, posted_at, 
@@ -332,7 +333,7 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var deal Deal
-		err = rows.Scan(&deal.Title, &deal.Description, &deal.ThumbnailID,
+		err = rows.Scan(&deal.ID, &deal.Title, &deal.Description, &deal.ThumbnailID,
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
 			&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
@@ -415,6 +416,12 @@ func readUnstructuredJson(r *http.Request) (unstructuredJSON, error) {
 }
 
 func PostDeal(w http.ResponseWriter, r *http.Request) {
+	// On deal submit in client:
+	// 1. Upload images on client side, get imageUrls and include in "images" key in payload
+	// 2. Insert deal in to deals to get dealId
+	// 3. Insert deal_memberships for op
+	// 4. Insert deal_images for imageUrls
+	// 5. Update deal thumbnail id to be first imageUrl received
 	result, err := readUnstructuredJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -423,13 +430,13 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 	colValues := make(map[string]interface{})
 	var ok bool
 	var val interface{}
+	var imageURLs []string
 	for key, value := range result {
 		snakeKey := strcase.ToSnake(key)
 		switch key {
 		case "title": fallthrough
 		case "description": fallthrough
-		case "posterId": fallthrough
-		case "thumbnailId": fallthrough
+		case "posterId": ;fallthrough
 		case "locationText":
 			val, ok = value.(string)
 			colValues[snakeKey] = val
@@ -442,6 +449,17 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		case "quantity":
 			val, ok = value.(float64)
 			colValues[snakeKey] = val
+		case "images":
+			switch value := value.(type) {
+			case []interface{}:
+				for _, urlStr := range value {
+					urlStrs := urlStr.(string)
+					if urlStrs != "" {
+						imageURLs = append(imageURLs, strings.TrimSpace(urlStrs))
+					}
+				}
+			}
+
 		default:
 			http.Error(w, fmt.Sprintf("Invalid key '%s'", key), http.StatusBadRequest)
 			return
@@ -452,6 +470,7 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// START Validations:
 	// check if not null fields are all present
 	reqCols := []string{"title", "description", "category_id", "poster_id", "city_id"}
 	for _, reqCol := range reqCols {
@@ -460,18 +479,29 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var cols []string
-	var vals []interface{}
-	for col, val := range colValues {
-		cols = append(cols, col)
-		vals = append(vals, val)
-	}
+
+	// check if both lat lng together, convert to sql format
 	hasLat := colValues["latitude"] != nil
 	hasLng := colValues["longitude"] != nil
 	if (hasLat || hasLng) && hasLat != hasLng {
 		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
 		return
 	}
+
+	posterId := colValues["poster_id"].(string)
+	if !utils.IsValidUUID(posterId) {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+	// END Validations
+
+	var cols []string
+	var vals []interface{}
+	for col, val := range colValues {
+		cols = append(cols, col)
+		vals = append(vals, val)
+	}
+
 	colsStr := strings.Join(cols, ",")
 	valuePlaceholders := make([]string, len(cols))
 	for i:=0; i<len(cols); i++ {
@@ -483,6 +513,9 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		valuePlaceholderStr += fmt.Sprintf(",ST_MakePoint(%.6f,%.6f)",
 			colValues["latitude"], colValues["longitude"])
 	}
+
+	// START Insertions
+	// Insert deal
 	insertStr := fmt.Sprintf(`INSERT INTO deals (%s)`, colsStr)
 	valuesStr := fmt.Sprintf(`VALUES (%s)`, valuePlaceholderStr)
 	returnStr := fmt.Sprintf("RETURNING %s", "id")
@@ -493,14 +526,48 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Write([]byte(dealId))
+
+	// Insert images
+	var thumbnailImageId string
+	for i, imageURL := range imageURLs {
+		var dealImageId string
+		err = db.QueryRow(
+			"INSERT into deal_images (deal_id, image_url, poster_id) VALUES ($1, $2, $3) RETURNING id;",
+			dealId, imageURL, posterId).Scan(&dealImageId)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if i == 0  {
+			thumbnailImageId = dealImageId
+		}
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	// Insert membership
+	var membershipId string
+	err = db.QueryRow(
+		"INSERT INTO deal_memberships (user_id, deal_id) VALUES ($1, $2) RETURNING id",
+		posterId, dealId).Scan(&membershipId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	err = db.QueryRow("UPDATE deals SET thumbnail_id=$1 WHERE id=$2 RETURNING id",
+		thumbnailImageId, dealId).Scan(&dealId)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.Write([]byte(dealId))
+	}
 }
 
 func UpdateDeal(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	dealId := vars["id"]
-	if dealId == "" {
-		http.Error(w, "no id found", http.StatusBadRequest)
+	dealId, err := getURLParamUUID("dealId", r)
+	if err != nil {
+		http.Error(w, "no deal id found", http.StatusBadRequest)
 		return
 	}
 	result, err := readUnstructuredJson(r)
@@ -543,7 +610,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	updateStrings := make([]string, len(colValues))
 	i := 0
 	for col, val := range colValues {
-		updateStrings[i] = fmt.Sprintf("%s = $%d", col, i+1)
+		updateStrings[i] = fmt.Sprintf("%s=$%d", col, i+1)
 		values = append(values, val)
 		i++
 	}
