@@ -294,8 +294,8 @@ func GetDeals(w http.ResponseWriter, r *http.Request) {
 	if hasLat && hasLng && hasRadius {
 		geogColName := "point"
 		distanceFilter := fmt.Sprintf(
-			"ST_Distance(%s, ST_MakePoint(%f,%f)::geography) <= %d * 1000",
-			geogColName, lng, lat, radiusKm)
+			"ST_Distance(%s, %s) <= %d * 1000",
+			geogColName, utils.MakePointString(lng, lat), radiusKm)
 		filterStrings = append(filterStrings, distanceFilter)
 	}
 
@@ -428,7 +428,7 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	colValues := make(map[string]interface{})
-	var ok bool
+	ok := true
 	var val interface{}
 	var imageURLs []string
 	for key, value := range result {
@@ -510,8 +510,8 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 	valuePlaceholderStr := strings.Join(valuePlaceholders, ",")
 	if hasLat && hasLng {
 		colsStr += ",point"
-		valuePlaceholderStr += fmt.Sprintf(",ST_MakePoint(%.6f,%.6f)",
-			colValues["latitude"], colValues["longitude"])
+		valuePlaceholderStr += fmt.Sprintf(",%s", utils.MakePointString(
+			colValues["latitude"], colValues["longitude"]))
 	}
 
 	// START Insertions
@@ -575,8 +575,8 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var values []interface{}
-	var ok bool
+	var queryValues []interface{}
+	ok := true
 	var val interface{}
 	colValues := make(map[string]interface{})
 	for key, value := range result {
@@ -611,14 +611,26 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	i := 0
 	for col, val := range colValues {
 		updateStrings[i] = fmt.Sprintf("%s=$%d", col, i+1)
-		values = append(values, val)
+		queryValues = append(queryValues, val)
 		i++
 	}
 	updateStr := strings.Join(updateStrings, ",")
+
+	// manually add because placeholder does not validly parse brackets
+	hasLat := colValues["latitude"] != nil
+	hasLng := colValues["longitude"] != nil
+	if (hasLat || hasLng) && hasLat != hasLng {
+		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
+		return
+	}
+	if hasLat && hasLng {
+		updateStr += fmt.Sprintf(",point=%s", utils.MakePointString(colValues["latitude"], colValues["longitude"]))
+	}
+
 	query := fmt.Sprintf(`UPDATE deals SET %s WHERE id = $%d RETURNING id`, updateStr, len(colValues)+1)
-	values = append(values, dealId)
+	queryValues = append(queryValues, dealId)
 	var dealIdReturned string
-	err = db.QueryRow(query, values...).Scan(&dealIdReturned)
+	err = db.QueryRow(query, queryValues...).Scan(&dealIdReturned)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
