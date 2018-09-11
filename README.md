@@ -3,19 +3,34 @@
 Simple REST API for Golang.
 
 ## Getting Started
-Install go dependencies:
+### Install go dependencies:
 ```
 dep ensure
 ```
 
-Run sql scripts:
+### Edit config
+In `config/dev.json`
+```json
+{
+  "port": 8080,
+  "dbDriverName": "",
+  "dbSourceName": "",
+  "dbUsername": "",
+  "dbPassword": "",
+  "sessionStoreKey": "",
+  "sessionName": "",
+  "csrfKey": ""
+}
+```
+
+### Run sql scripts:
 ```bash
 for i in `ls sql`; do 
     psql -h localhost -d groupbuy -p 5432 -f ./sql/$i
 done
 ```
 
-Routes:
+### Routes:
 - `/deals`
     - GET
         - `search_text`
