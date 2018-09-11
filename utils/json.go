@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 )
 
-type unstructuredJSON = map[string]interface{}
+type UnstructuredJSON = map[string]interface{}
 
-func ReadUnstructuredJson(r *http.Request) (unstructuredJSON, error) {
-	var result unstructuredJSON
+func ReadUnstructuredJson(r *http.Request) (UnstructuredJSON, error) {
+	var result UnstructuredJSON
 	jsonRead, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
