@@ -14,3 +14,6 @@ type UserCredentials struct {
 	DisplayName string	`json:"displayName"`
 }
 
+type FacebookCredential struct {
+	AccessToken string `json:"accessToken"`
+}

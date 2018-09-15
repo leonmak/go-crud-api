@@ -9,4 +9,7 @@ type Configuration struct {
 	SessionStoreKey string		`json:"sessionStoreKey"`
 	SessionName	 	string		`json:"sessionName"`
 	CSRFKey			string 		`json:"csrfKey"`
+
+	FBAppId			string 		`json:"fbAppId"`
+	FBAppSecret		string 		`json:"fbAppSecret"`
 }

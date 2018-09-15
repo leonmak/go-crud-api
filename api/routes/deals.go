@@ -11,14 +11,13 @@ import (
 	"strings"
 	"encoding/json"
 	"github.com/iancoleman/strcase"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/gorilla/mux"
 	"errors"
 	"net/url"
 	"groupbuying.online/api/env"
 )
 
-func GetDeals(w http.ResponseWriter, r *http.Request) {
+func getDeals(w http.ResponseWriter, r *http.Request) {
 	// static options
 	pageSize := 30
 	postedAtColName := "posted_at"
@@ -220,7 +219,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func PostDeal(w http.ResponseWriter, r *http.Request) {
+func postDeal(w http.ResponseWriter, r *http.Request) {
 	// On deal submit in client:
 	// 1. Upload images on client side, get imageUrls and include in "images" key in payload
 	// 2. Insert deal in to deals to get dealId
@@ -370,7 +369,7 @@ func PostDeal(w http.ResponseWriter, r *http.Request) {
 }
 
 
-func HandleDeal(w http.ResponseWriter, r *http.Request) {
+func handleDeal(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet: GetDeal(w, r)
 	case http.MethodPut: UpdateDeal(w, r)
@@ -485,7 +484,7 @@ func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
+func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -511,7 +510,7 @@ func GetDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	w.Write(membersBytes)
 }
 
-func HandleDealMembership(w http.ResponseWriter, r *http.Request) {
+func handleDealMembership(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	userId, err := getURLParamUUID("userId", r)
 	if err != nil {
@@ -550,7 +549,7 @@ func LeaveDeal(dealId string, userId string) (dealMembershipId string, err error
 	return dealMembershipId, err
 }
 
-func GetDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
+func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -579,7 +578,7 @@ func GetDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 	w.Write(imageURLStr)
 }
 
-func HandleDealImage(w http.ResponseWriter, r *http.Request) {
+func handleDealImage(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadUnstructuredJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -614,7 +613,7 @@ func HandleDealImage(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Update deal image"))
 }
 
-func GetDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
+func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -639,7 +638,7 @@ func GetDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	w.Write(resStr)
 }
 
-func HandleDealLike(w http.ResponseWriter, r *http.Request) {
+func handleDealLike(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadUnstructuredJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -672,7 +671,7 @@ func HandleDealLike(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Updated user '%s' like status for deal '%s'", userId, dealId)))
 }
 
-func GetDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
+func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -698,7 +697,7 @@ func GetDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 	w.Write(dealCommentBytes)
 }
 
-func HandleDealComment(w http.ResponseWriter, r *http.Request) {
+func handleDealComment(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadUnstructuredJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -730,35 +729,4 @@ func HandleDealComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Write([]byte(fmt.Sprintf("Updated user '%s' comment for deal '%s'", userId, dealId)))
-}
-
-func LogoutUser(w http.ResponseWriter, r *http.Request) {
-	session, _ := env.Store.Get(r, env.Conf.SessionName)
-	session.Values["authenticated"] = false
-	session.Save(r, w)
-}
-
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
-	return string(bytes), err
-}
-
-func CreateUser(w http.ResponseWriter, r *http.Request) {
-	creds := &structs.UserCredentials{}
-	err := json.NewDecoder(r.Body).Decode(creds)
-	if err != nil || creds.DisplayName == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintln(w, "Invalid submission.")
-		return
-	}
-	passwordDigest, err := HashPassword(creds.Password)
-	_, err = env.Db.Query("INSERT INTO " +
-		"USERS (email, password_digest, display_name) " +
-		"VALUES ($1, $2, $3)",
-		creds.Email, passwordDigest, creds.DisplayName)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintln(w, "Server Error.")
-		return
-	}
 }

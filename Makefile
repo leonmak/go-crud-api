@@ -1,3 +1,6 @@
+run: build
+	./main
+
 build:
 	cd api; go build -o main; mv main ..;
 

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"groupbuying.online/api/structs"
 	"groupbuying.online/api/env"
+	"fmt"
 )
 
 func CheckPasswordHash(password, hash string) bool {
@@ -15,7 +16,38 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-func LoginUser(w http.ResponseWriter, r *http.Request) {
+func logoutUser(w http.ResponseWriter, r *http.Request) {
+	session, _ := env.Store.Get(r, env.Conf.SessionName)
+	session.Values["authenticated"] = false
+	session.Save(r, w)
+}
+
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+	return string(bytes), err
+}
+
+func createUser(w http.ResponseWriter, r *http.Request) {
+	creds := &structs.UserCredentials{}
+	err := json.NewDecoder(r.Body).Decode(creds)
+	if err != nil || creds.DisplayName == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintln(w, "Invalid submission.")
+		return
+	}
+	passwordDigest, err := HashPassword(creds.Password)
+	_, err = env.Db.Query("INSERT INTO " +
+		"USERS (email, password_digest, display_name) " +
+		"VALUES ($1, $2, $3)",
+		creds.Email, passwordDigest, creds.DisplayName)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, "Server Error.")
+		return
+	}
+}
+
+func loginUser(w http.ResponseWriter, r *http.Request) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	creds := &structs.UserCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
@@ -45,4 +77,15 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Printf("Login Failed as db errored. %v", err)
 	}
+}
+
+func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
+	session, _ := env.Store.Get(r, env.Conf.SessionName)
+	creds := &structs.UserCredentials{}
+	err := json.NewDecoder(r.Body).Decode(creds)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
 }

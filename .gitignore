@@ -3,5 +3,6 @@ vendor/
 
 .env
 config/production.json
+config/dev.json
 
 sql/world.sql
