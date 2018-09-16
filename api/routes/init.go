@@ -39,8 +39,9 @@ func InitRouter() {
 	// User
 	// TODO: Get another user's profile stats
 	api.HandleFunc("/register", createUser).Methods(http.MethodPost)
+	api.HandleFunc("/register_social_media", registerBySocialMedia).Methods(http.MethodPost)
 	api.HandleFunc("/login", loginUser).Methods(http.MethodPost)
-	api.HandleFunc("/loginFB", loginFacebookUser).Methods(http.MethodPost)
+	api.HandleFunc("/login_facebook", loginFacebookUser).Methods(http.MethodPost)
 	api.HandleFunc("/logout", middleware.Use(logoutUser, auth)).Methods(http.MethodPost)
 
 	fmt.Printf("listening on %d\n", env.Conf.Port)

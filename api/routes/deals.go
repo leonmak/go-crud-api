@@ -226,7 +226,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	// 3. Insert deal_memberships for op
 	// 4. Insert deal_images for imageUrls
 	// 5. Update deal thumbnail id to be first imageUrl received
-	result, err := utils.ReadUnstructuredJson(r)
+	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -384,7 +384,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no deal id found", http.StatusBadRequest)
 		return
 	}
-	result, err := utils.ReadUnstructuredJson(r)
+	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -579,7 +579,7 @@ func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDealImage(w http.ResponseWriter, r *http.Request) {
-	result, err := utils.ReadUnstructuredJson(r)
+	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -639,7 +639,7 @@ func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDealLike(w http.ResponseWriter, r *http.Request) {
-	result, err := utils.ReadUnstructuredJson(r)
+	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -698,7 +698,7 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 }
 
 func handleDealComment(w http.ResponseWriter, r *http.Request) {
-	result, err := utils.ReadUnstructuredJson(r)
+	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

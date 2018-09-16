@@ -9,7 +9,7 @@ CREATE TABLE users
   id                    uuid primary key default uuid_generate_v4(),
   email                 citext not null unique,
   display_name          text not null,
-  password_digest       text not null,
+  password_digest       text,
   image_url             text,
   verify_email_sent_at  timestamp,
   verified_at           timestamp,

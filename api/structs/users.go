@@ -14,6 +14,14 @@ type UserCredentials struct {
 	DisplayName string	`json:"displayName"`
 }
 
-type FacebookCredential struct {
-	AccessToken string `json:"accessToken"`
+type UserCredentialSocialMedia struct {
+	Email 		string	`json:"email"`
+	DisplayName string	`json:"displayName"`
+	ImageUrl 	string  `json:"imageUrl"`
+}
+
+type FacebookCredentials struct {
+	UserID	 	string 	`json:"userId"`
+	UserToken 	string 	`json:"userToken"`
+	Email 		string	`json:"email"`
 }

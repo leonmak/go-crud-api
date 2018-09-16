@@ -20,16 +20,15 @@ import (
 // TODO: - cloudinary, email verification, change name/password
 
 func Init() {
-	initGlobals()
+	initEnv()
 	routes.InitRouter()
 }
 
-func initGlobals() {
+func initEnv() {
 	initConfig()
 	initDB()
 	initSessionStore()
 }
-
 
 func initConfig() {
 	var err error
