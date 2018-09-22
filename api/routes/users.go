@@ -50,7 +50,6 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginUser(w http.ResponseWriter, r *http.Request) {
-	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	creds := &structs.UserCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
 	if err != nil {
@@ -71,22 +70,81 @@ func loginUser(w http.ResponseWriter, r *http.Request) {
 		if !CheckPasswordHash(creds.Password, passwordDigest) {
 			w.WriteHeader(http.StatusUnauthorized)
 			log.Printf("Login Failed as password mismatched")
+			return
 		}
 		// Save authenticated session if successful
-		session.Values["authenticated"] = true
-		session.Save(r, w)
 		log.Printf("Login Successful")
+		signInSession(user, w, r)
 		// Return User info
-		b, err := json.Marshal(user)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			w.Write(b)
-		}
 	default:
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Printf("Login Failed as db errored. %v", err)
 	}
+}
+
+func getUserByEmail(email string) (user structs.User, err error){
+	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
+		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	if err != nil {
+		return user, fmt.Errorf("no user found")
+	} else {
+		return user, nil
+	}
+}
+
+func writeRegisterJson(w http.ResponseWriter) {
+	w.Write([]byte(`{"to_register": true}`))
+}
+
+func readSocialCredentials(r *http.Request) (*structs.SocialSignInCredentials, error) {
+	creds := &structs.SocialSignInCredentials{}
+	err := json.NewDecoder(r.Body).Decode(creds)
+	return creds, err
+}
+
+func signInSession(user structs.User, w http.ResponseWriter, r *http.Request) {
+	session, _ := env.Store.Get(r, env.Conf.SessionName)
+	b, err := json.Marshal(user)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		session.Values["authenticated"] = true
+		session.Save(r, w)
+		w.Write(b)
+	}
+}
+
+// Google Auth
+func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
+	creds, err := readSocialCredentials(r)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	isValid := validateGoogleUserToken(creds.Email, creds.UserToken)
+	if !isValid {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	user, err := getUserByEmail(creds.Email)
+	if err == nil {
+		signInSession(user, w, r)
+	} else {
+		writeRegisterJson(w)
+	}
+}
+
+func validateGoogleUserToken(email string, userToken string) bool {
+	validateTokenLink := fmt.Sprintf(
+		"https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=%s", userToken)
+	resp, err := http.Get(validateTokenLink)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	jsonResp := utils.ReadResponseToJson(resp)
+	isValid := jsonResp["email"].(string) == email
+	return isValid
 }
 
 // Facebook Auth
@@ -94,9 +152,7 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 	// checks userId, userToken from FBLoginKit,
 	// and returns {"to_register": true} if valid but not registered
 	// or user object if valid and registered.
-	session, _ := env.Store.Get(r, env.Conf.SessionName)
-	creds := &structs.FacebookCredentials{}
-	err := json.NewDecoder(r.Body).Decode(creds)
+	creds, err := readSocialCredentials(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -112,17 +168,10 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, err := getUserByEmail(creds.Email)
-	if err != nil {
-		w.Write([]byte(`{"to_register": true}`))
+	if err == nil {
+		signInSession(user, w, r)
 	} else {
-		b, err := json.Marshal(user)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			session.Values["authenticated"] = true
-			session.Save(r, w)
-			w.Write(b)
-		}
+		writeRegisterJson(w)
 	}
 }
 
@@ -154,16 +203,6 @@ func validateFacebookUserToken(appToken string, userToken string, userId string)
 	jsonResp := utils.ReadResponseToJson(resp)["data"].(utils.UnstructuredJSON)
 	isValid := jsonResp["is_valid"].(bool) && jsonResp["user_id"].(string) == userId
 	return isValid
-}
-
-func getUserByEmail(email string) (user structs.User, err error){
-	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
-		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
-	if err != nil {
-		return user, fmt.Errorf("no user found")
-	} else {
-		return user, nil
-	}
 }
 
 func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {

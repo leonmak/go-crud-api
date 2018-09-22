@@ -22,7 +22,6 @@ CREATE TABLE deals
   posted_at       timestamp default now(),
   updated_at      timestamp,
   inactive_at     timestamp,
-  city_id         serial references cities(id),
   CHECK (length(title) <= 128),
   CHECK (length(description) <= 512),
   CHECK (length(location_text) <= 128)
@@ -97,7 +96,6 @@ DECLARE
   vUserId uuid := 'eab30e15-fded-46fc-93f4-af0cb2a0ebd8';
   vImageUrl text := 'https://via.placeholder.com/350x150.jpg';
   vCatId int := 1;
-  vCityId int := 37541;
   vLat decimal := 1.3501484;
   vLong decimal := 103.8486871;
 BEGIN
@@ -113,13 +111,13 @@ BEGIN
     title, description,
     latitude, longitude, point,
     location_text, total_price, total_savings, quantity,
-    category_id, poster_id, city_id)
+    category_id, poster_id)
   VALUES (
     vDealId,
     'deal1', 'some shirt',
     vLat, vLong, ST_MakePoint(103.8198, 1.3521),
     'singapura mall', 40, 10.5, 2,
-    vCatId, vUserId, vCityId
+    vCatId, vUserId
   );
 
   INSERT INTO deal_memberships (user_id, deal_id) VALUES (

@@ -20,7 +20,7 @@ type UserCredentialSocialMedia struct {
 	ImageUrl 	string  `json:"imageUrl"`
 }
 
-type FacebookCredentials struct {
+type SocialSignInCredentials struct {
 	UserID	 	string 	`json:"userId"`
 	UserToken 	string 	`json:"userToken"`
 	Email 		string	`json:"email"`
