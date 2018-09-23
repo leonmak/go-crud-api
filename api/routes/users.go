@@ -11,8 +11,38 @@ import (
 	"fmt"
 	"groupbuying.online/utils"
 	"time"
+	"github.com/Automattic/go-gravatar"
 )
 
+// Info
+func getUserById(w http.ResponseWriter, r *http.Request) {
+	user := structs.User{}
+	jsonResp, err := utils.ReadRequestToJson(r)
+	userId := jsonResp["userId"].(string)
+	if err != nil || userId == "" {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE id=$1",
+		userId).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+	} else {
+		userBytes, _ := json.Marshal(user)
+		w.Write(userBytes)
+	}
+}
+
+func getUserByEmail(email string) (user structs.User, err error){
+	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
+		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	if err != nil {
+		return user, fmt.Errorf("no user found")
+	} else {
+		return user, nil
+	}
+}
+
+// Auth
 func CheckPasswordHash(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
@@ -29,27 +59,39 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), err
 }
 
-func createUser(w http.ResponseWriter, r *http.Request) {
+func getGravatarUrl(email string) (url string) {
+	g := gravatar.NewGravatarFromEmail(email)
+	return g.GetURL()
+}
+
+func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	creds := &structs.UserCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
-	if err != nil || creds.DisplayName == "" {
+	if err != nil || creds.DisplayName == "" || !utils.IsValidUsername(creds.DisplayName) {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintln(w, "Invalid submission.")
+		utils.WriteError(w, "invalid username")
 		return
 	}
 	passwordDigest, err := HashPassword(creds.Password)
-	_, err = env.Db.Query("INSERT INTO " +
-		"USERS (email, password_digest, display_name) " +
-		"VALUES ($1, $2, $3)",
-		creds.Email, passwordDigest, creds.DisplayName)
+	userId := ""
+	imageUrl := getGravatarUrl(creds.Email)
+
+	err = env.Db.QueryRow("INSERT INTO USERS (email, password_digest, display_name, image_url) " +
+		"VALUES ($1, $2, $3, $4) RETURNING id;",
+		creds.Email, passwordDigest, creds.DisplayName, imageUrl).Scan(&userId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		utils.WriteError(w, "user already exists")
 		fmt.Fprintln(w, "Server Error.")
 		return
 	}
+	saveSession(w, r)
+	user := structs.User{ID: userId, DisplayName: creds.DisplayName, ImageURL: imageUrl}
+	respondUser(user, w)
 }
 
-func loginUser(w http.ResponseWriter, r *http.Request) {
+func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 	creds := &structs.UserCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
 	if err != nil {
@@ -65,35 +107,29 @@ func loginUser(w http.ResponseWriter, r *http.Request) {
 	switch err {
 	case sql.ErrNoRows:
 		w.WriteHeader(http.StatusUnauthorized)
+		utils.WriteError(w, "username / password mismatch")
 		log.Printf("Login Failed as user doesn't exist")
 	case nil:
 		if !CheckPasswordHash(creds.Password, passwordDigest) {
 			w.WriteHeader(http.StatusUnauthorized)
+			utils.WriteError(w, "username / password mismatch")
 			log.Printf("Login Failed as password mismatched")
 			return
 		}
 		// Save authenticated session if successful
 		log.Printf("Login Successful")
-		signInSession(user, w, r)
-		// Return User info
+		w.WriteHeader(http.StatusOK)
+		saveSession(w, r)
+		respondUser(user, w)
 	default:
 		w.WriteHeader(http.StatusInternalServerError)
 		log.Printf("Login Failed as db errored. %v", err)
-	}
-}
-
-func getUserByEmail(email string) (user structs.User, err error){
-	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
-		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
-	if err != nil {
-		return user, fmt.Errorf("no user found")
-	} else {
-		return user, nil
+		utils.WriteError(w, "could not retrieve user")
 	}
 }
 
 func writeRegisterJson(w http.ResponseWriter) {
-	w.Write([]byte(`{"to_register": true}`))
+	utils.WriteJsonResponse(w, "to_register", true)
 }
 
 func readSocialCredentials(r *http.Request) (*structs.SocialSignInCredentials, error) {
@@ -102,16 +138,18 @@ func readSocialCredentials(r *http.Request) (*structs.SocialSignInCredentials, e
 	return creds, err
 }
 
-func signInSession(user structs.User, w http.ResponseWriter, r *http.Request) {
+func saveSession(w http.ResponseWriter, r *http.Request) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
+	session.Values["authenticated"] = true
+	session.Save(r, w)
+}
+
+func respondUser(user structs.User, w http.ResponseWriter) {
 	b, err := json.Marshal(user)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-	} else {
-		session.Values["authenticated"] = true
-		session.Save(r, w)
-		w.Write(b)
 	}
+	w.Write(b)
 }
 
 // Google Auth
@@ -128,7 +166,8 @@ func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := getUserByEmail(creds.Email)
 	if err == nil {
-		signInSession(user, w, r)
+		saveSession(w, r)
+		respondUser(user, w)
 	} else {
 		writeRegisterJson(w)
 	}
@@ -169,7 +208,8 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := getUserByEmail(creds.Email)
 	if err == nil {
-		signInSession(user, w, r)
+		saveSession(w, r)
+		respondUser(user, w)
 	} else {
 		writeRegisterJson(w)
 	}
@@ -216,8 +256,9 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 		creds.Email, creds.DisplayName, creds.ImageUrl, time.Now()).Scan(&id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintln(w, "Server Error.")
+		utils.WriteError(w, "could not retrieve user")
 		return
 	}
-	w.Write([]byte(fmt.Sprintf(`{"user_id": "%s"}`, id)))
+	user := structs.User{ID: id, ImageURL: creds.ImageUrl, DisplayName: creds.DisplayName}
+	respondUser(user, w)
 }

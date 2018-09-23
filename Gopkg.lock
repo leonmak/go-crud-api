@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:196c3f22d521124da9e473d82b63784adc89961005a4817c93274f40e74c1eb1"
+  name = "github.com/Automattic/go-gravatar"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "825bcfa87a5747840787a9e168c6f2e1129c8fe3"
+
+[[projects]]
   digest = "1:8f8811f9be822914c3a25c6a071e93beb4c805d7b026cbf298bc577bc1cc945b"
   name = "github.com/google/uuid"
   packages = ["."]
@@ -75,6 +83,7 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/Automattic/go-gravatar",
     "github.com/google/uuid",
     "github.com/gorilla/mux",
     "github.com/gorilla/sessions",
