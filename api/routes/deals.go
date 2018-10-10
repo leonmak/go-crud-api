@@ -27,12 +27,11 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 
 	searchText := values.Get("search_text")
 	var queryParams []interface{}
+	colCount := 0
 	filterStr := ""
-	if searchText == "" {
-		http.Error(w, "No search text", http.StatusInternalServerError)
-		return
-	} else {
-		titleFuzzyFilter := "title % $1"
+	if searchText != "" {
+		colCount++
+		titleFuzzyFilter := fmt.Sprintf("title $%d", colCount)
 		filterStrings = append(filterStrings, titleFuzzyFilter)
 		queryParams = append(queryParams, searchText)
 	}
@@ -59,7 +58,8 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Get date filter string, after most recent, or between before least recent and after floor.
-		dateFilter = fmt.Sprintf("(%s > $2 OR %s < $3)", postedAtColName, postedAtColName)
+		dateFilter = fmt.Sprintf("(d.%s > $%d OR d.%s < $%d)", postedAtColName, colCount+1, postedAtColName, colCount+2)
+		colCount += 2
 		filterStrings = append(filterStrings, dateFilter)
 		queryParams = append(queryParams, afterT, beforeT)
 	}
@@ -119,11 +119,11 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	}
 	filterStrings = append(filterStrings, hideInactiveStr)
 
-	selectCols := `SELECT id, title, description, thumbnail_id,
-		latitude, longitude, location_text, 
-		total_price, total_savings, quantity, 
-		category_id, poster_id, posted_at, 
-		updated_at, inactive_at FROM deals`
+	selectCols := `SELECT d.id, d.title, d.description, i.image_url,
+		d.latitude, d.longitude, d.location_text, 
+		d.total_price, d.total_savings, d.quantity, 
+		d.category_id, d.poster_id, d.posted_at, 
+		d.updated_at, d.inactive_at FROM deals d LEFT JOIN deal_images i on d.id=i.deal_id`
 
 	var deals []structs.Deal
 	var rows *sql.Rows
@@ -131,7 +131,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	// NOTE: Ensure all user-defined strings are in query parameters
 
 	filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
-	orderByStr := fmt.Sprintf("ORDER BY %s DESC", postedAtColName)
+	orderByStr := fmt.Sprintf("ORDER BY d.%s DESC", postedAtColName)
 	limitStr := fmt.Sprintf("LIMIT %d", pageSize)
 	query := selectCols + strings.Join([]string{filterStr, orderByStr, limitStr}, " ")
 
@@ -145,7 +145,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var deal structs.Deal
-		err = rows.Scan(&deal.ID, &deal.Title, &deal.Description, &deal.ThumbnailID,
+		err = rows.Scan(&deal.ID, &deal.Title, &deal.Description, &deal.ThumbnailUrl,
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
 			&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
@@ -187,7 +187,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	query := selectCols + filterStr
 	var deal structs.Deal
 	err = env.Db.QueryRow(query, dealId).Scan(
-		&deal.Title, &deal.Description, &deal.ThumbnailID,
+		&deal.Title, &deal.Description, &deal.ThumbnailUrl,
 		&deal.Latitude, &deal.Longitude, &deal.LocationText,
 		&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
 		&deal.CategoryID, &deal.PosterID, &deal.PostedAt,

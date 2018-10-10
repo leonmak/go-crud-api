@@ -13,7 +13,7 @@ type Deal struct {
 	Description 	string		`json:"description",db:"description"`
 	// pointer for possible nil values
 	// first image in upload is thumbnailID
-	ThumbnailID		*string 	`json:"thumbnailId,omitempty",db:"thumbnail_id"`
+	ThumbnailUrl 	*string 	`json:"thumbnailUrl,omitempty",db:"thumbnail_id"`
 	// location fields can be derived from lat lng (drop in) or text (reverse geocode) on POST
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
@@ -64,4 +64,3 @@ type DealComment struct {
 	Comment		string		`json:"comment",db:"comment"`
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
 }
-
