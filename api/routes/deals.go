@@ -75,16 +75,6 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, posterIdFilter)
 	}
 
-	cityId, err := strconv.Atoi(values.Get("city_id"))
-	if err != nil {
-		http.Error(w, "No valid city id", http.StatusBadRequest)
-		return
-	} else {
-		cityIdColName := "city_id"
-		cityIdFilter := fmt.Sprintf("%s = %d ", cityIdColName, cityId)
-		filterStrings = append(filterStrings, cityIdFilter)
-	}
-
 	categoryId, err := strconv.Atoi(values.Get("category_id"))
 	if err == nil {
 		categoryFilter := fmt.Sprintf("category_id = %d", categoryId)
@@ -133,7 +123,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		latitude, longitude, location_text, 
 		total_price, total_savings, quantity, 
 		category_id, poster_id, posted_at, 
-		updated_at, inactive_at, city_id FROM deals`
+		updated_at, inactive_at FROM deals`
 
 	var deals []structs.Deal
 	var rows *sql.Rows
@@ -159,7 +149,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
 			&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
-			&deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
+			&deal.UpdatedAt, &deal.InactiveAt)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -191,7 +181,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 		latitude, longitude, location_text, 
 		total_price, total_savings, quantity, 
 		category_id, poster_id, posted_at, 
-		updated_at, inactive_at, city_id FROM deals`
+		updated_at, inactive_at FROM deals`
 
 	filterStr := fmt.Sprintf(" WHERE id = $1")
 	query := selectCols + filterStr
@@ -201,7 +191,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 		&deal.Latitude, &deal.Longitude, &deal.LocationText,
 		&deal.TotalPrice, &deal.TotalSavings, &deal.Quantity,
 		&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
-		&deal.UpdatedAt, &deal.InactiveAt, &deal.CityID)
+		&deal.UpdatedAt, &deal.InactiveAt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -213,11 +203,26 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-
 	} else {
 		w.Write(dealArr)
 	}
 }
+
+func getDealCategories(w http.ResponseWriter, r *http.Request) {
+	var categories []structs.DealCategory
+	var rows *sql.Rows
+	rows, err := env.Db.Query(`SELECT id, name, max_images, max_active_days from deal_categories`)
+	for rows.Next() {
+		var category structs.DealCategory
+		err = rows.Scan(&category.ID, &category.Name, &category.MaxImages, &category.MaxActiveDays)
+		categories = append(categories, category)
+	}
+	if err != nil {
+		return
+	}
+	utils.WriteJsonResponse(w, "categories", categories)
+}
+
 
 func postDeal(w http.ResponseWriter, r *http.Request) {
 	// On deal submit in client:
@@ -247,7 +252,6 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		case "latitude": fallthrough
 		case "longitude": fallthrough
 		case "categoryId": fallthrough
-		case "cityId": fallthrough
 		case "totalPrice": fallthrough
 		case "totalSavings": fallthrough
 		case "quantity":
@@ -276,18 +280,18 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 
 	// START Validations:
 	// check if not null fields are all present
-	reqCols := []string{"title", "description", "category_id", "poster_id", "city_id"}
+	reqCols := []string{"title", "description", "category_id", "poster_id"}
 	for _, reqCol := range reqCols {
-		if colValues[reqCol] == nil {
+		if _, hasCol := colValues[reqCol]; !hasCol {
 			http.Error(w, fmt.Sprintf("Missing required field %s", reqCol), http.StatusBadRequest)
 			return
 		}
 	}
 
 	// check if both lat lng together, convert to sql format
-	hasLat := colValues["latitude"] != nil
-	hasLng := colValues["longitude"] != nil
-	if (hasLat || hasLng) && hasLat != hasLng {
+	lat, hasLat := colValues["latitude"]
+	lng, hasLng := colValues["longitude"]
+	if hasLat && hasLng && (hasLat != hasLng) {
 		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
 		return
 	}
@@ -313,9 +317,10 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	}
 	valuePlaceholderStr := strings.Join(valuePlaceholders, ",")
 	if hasLat && hasLng {
+
 		colsStr += ",point"
-		valuePlaceholderStr += fmt.Sprintf(",%s", utils.MakePointString(
-			colValues["latitude"], colValues["longitude"]))
+		valuePlaceholderStr += fmt.Sprintf(",%s",
+			utils.MakePointString(lat.(float64), lng.(float64)))
 	}
 
 	// START Insertions
@@ -405,7 +410,6 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		case "latitude": fallthrough
 		case "longitude": fallthrough
 		case "categoryId": fallthrough
-		case "cityId": fallthrough
 		case "totalPrice": fallthrough
 		case "totalSavings": fallthrough
 		case "quantity":
@@ -431,14 +435,14 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	updateStr := strings.Join(updateStrings, ",")
 
 	// manually add because placeholder does not validly parse brackets
-	hasLat := colValues["latitude"] != nil
-	hasLng := colValues["longitude"] != nil
+	lat, hasLat := colValues["latitude"]
+	lng, hasLng := colValues["longitude"]
 	if (hasLat || hasLng) && hasLat != hasLng {
 		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
 		return
 	}
 	if hasLat && hasLng {
-		updateStr += fmt.Sprintf(",point=%s", utils.MakePointString(colValues["latitude"], colValues["longitude"]))
+		updateStr += fmt.Sprintf(",point=%s", utils.MakePointString(lat.(float64), lng.(float64)))
 	}
 
 	query := fmt.Sprintf(`UPDATE deals SET %s WHERE id = $%d RETURNING id`, updateStr, len(colValues)+1)

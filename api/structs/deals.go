@@ -27,7 +27,6 @@ type Deal struct {
 	PostedAt		time.Time	`json:"postedAt",db:"posted_at"`
 	UpdatedAt		*time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
 	InactiveAt		*time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
-	CityID			uint		`json:"cityId",db:"city_id"`
 }
 
 type DealCategory struct {

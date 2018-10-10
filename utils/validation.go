@@ -3,7 +3,6 @@ package utils
 import (
 	"github.com/google/uuid"
 	"net/http"
-	"fmt"
 	"unicode"
 )
 
@@ -13,7 +12,7 @@ func IsValidUUID(id string) bool {
 }
 
 func WriteError(w http.ResponseWriter, message string) {
-	w.Write([]byte(fmt.Sprintf(`{"error": "%s"`, message)))
+	WriteJsonResponse(w, "error", message)
 }
 
 func IsValidUsername(s string) bool {

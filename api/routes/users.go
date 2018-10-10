@@ -12,20 +12,20 @@ import (
 	"groupbuying.online/utils"
 	"time"
 	"github.com/Automattic/go-gravatar"
+	"strings"
 )
 
 // Info
 func getUserById(w http.ResponseWriter, r *http.Request) {
-	user := structs.User{}
-	jsonResp, err := utils.ReadRequestToJson(r)
-	userId := jsonResp["userId"].(string)
+	userId, err := getURLParamUUID("userId", r)
+	user := structs.User{ID: userId}
 	if err != nil || userId == "" {
 		w.WriteHeader(http.StatusBadRequest)
 	}
-	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE id=$1",
-		userId).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	err = env.Db.QueryRow("SELECT image_url, display_name FROM users WHERE id=$1",
+		userId).Scan(&user.ImageURL, &user.DisplayName)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		utils.WriteError(w, "user not found")
 	} else {
 		userBytes, _ := json.Marshal(user)
 		w.Write(userBytes)
@@ -36,7 +36,7 @@ func getUserByEmail(email string) (user structs.User, err error){
 	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
 		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
 	if err != nil {
-		return user, fmt.Errorf("no user found")
+		return user, fmt.Errorf("user not found")
 	} else {
 		return user, nil
 	}
@@ -75,15 +75,14 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	}
 	passwordDigest, err := HashPassword(creds.Password)
 	userId := ""
+	creds.Email = strings.ToLower(creds.Email)
 	imageUrl := getGravatarUrl(creds.Email)
-
 	err = env.Db.QueryRow("INSERT INTO USERS (email, password_digest, display_name, image_url) " +
 		"VALUES ($1, $2, $3, $4) RETURNING id;",
 		creds.Email, passwordDigest, creds.DisplayName, imageUrl).Scan(&userId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		utils.WriteError(w, "user already exists")
-		fmt.Fprintln(w, "Server Error.")
 		return
 	}
 	saveSession(w, r)
@@ -94,6 +93,7 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 	creds := &structs.UserCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
+	creds.Email = strings.ToLower(creds.Email)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -135,6 +135,7 @@ func writeRegisterJson(w http.ResponseWriter) {
 func readSocialCredentials(r *http.Request) (*structs.SocialSignInCredentials, error) {
 	creds := &structs.SocialSignInCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
+	creds.Email = strings.ToLower(creds.Email)
 	return creds, err
 }
 
@@ -148,8 +149,9 @@ func respondUser(user structs.User, w http.ResponseWriter) {
 	b, err := json.Marshal(user)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		w.Write(b)
 	}
-	w.Write(b)
 }
 
 // Google Auth

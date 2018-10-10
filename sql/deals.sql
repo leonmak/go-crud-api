@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS deals, deal_categories, deal_memberships, deal_images, deal_votes, deal_comments CASCADE;
+DROP TABLE IF EXISTS deals, deal_categories, deal_likes, deal_memberships, deal_images, deal_comments CASCADE;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";  -- uuid
 CREATE EXTENSION IF NOT EXISTS "postgis";    -- geography & location
@@ -100,7 +100,8 @@ DECLARE
   vLong decimal := 103.8486871;
 BEGIN
   INSERT INTO deal_categories (name) VALUES
-    ('shirts'), ('pants'), ('food'), ('sneakers');
+    ('app'), ('sale'), ('tickets'), ('snacks'), ('electronics'),
+    ('clothing'), ('shirts'), ('pants'), ('drinks'), ('food'), ('shoes');
 
   INSERT INTO deal_images (id, image_url, poster_id) VALUES (
     vThumbId, vImageUrl , vUserId
