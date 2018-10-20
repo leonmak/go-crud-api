@@ -1,3 +1,7 @@
+ALTER TABLE deals
+  DROP CONSTRAINT IF EXISTS deals_thumbnail_id_fkey,
+  DROP CONSTRAINT IF EXISTS deals_category_id_fkey,
+  DROP CONSTRAINT IF EXISTS deals_poster_id_fkey;
 DROP TABLE IF EXISTS deals, deal_categories, deal_likes, deal_memberships, deal_images, deal_comments CASCADE;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";  -- uuid
@@ -6,22 +10,22 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";    -- similarity
 
 CREATE TABLE deals
 (
-  id              uuid primary key default uuid_generate_v4(),
-  title           text not null,
-  description     text not null,
-  thumbnail_id    uuid,
-  latitude        float,
-  longitude       float,
-  point           geography,
-  location_text   text,
-  total_price     decimal(15,2),
-  total_savings   decimal(15,2),
-  quantity        int,
-  category_id     serial not null,
-  poster_id       uuid not null,
-  posted_at       timestamp default now(),
-  updated_at      timestamp,
-  inactive_at     timestamp,
+  id                uuid primary key default uuid_generate_v4(),
+  title             text not null,
+  description       text not null,
+  thumbnail_id      uuid,
+  latitude          float,
+  longitude         float,
+  point             geography,
+  location_text     text,
+  total_price       decimal(15,2),
+  percent_discount  decimal(5,2),
+  quantity          int,
+  category_id       serial not null,
+  poster_id         uuid not null,
+  posted_at         timestamp default now(),
+  updated_at        timestamp,
+  inactive_at       timestamp,
   CHECK (length(title) <= 128),
   CHECK (length(description) <= 512),
   CHECK (length(location_text) <= 128)
@@ -42,7 +46,6 @@ CREATE TABLE deal_memberships
   user_id     uuid references users(id),
   deal_id     uuid references deals(id),
   joined_at   timestamp default now(),
-  left_at     timestamp,
   UNIQUE(user_id, deal_id)
 );
 
@@ -98,6 +101,7 @@ DECLARE
   vCatId int := 1;
   vLat decimal := 1.3501484;
   vLong decimal := 103.8486871;
+  vImageId uuid;
 BEGIN
   INSERT INTO deal_categories (name) VALUES
     ('app'), ('sale'), ('tickets'), ('snacks'), ('electronics'),
@@ -105,20 +109,20 @@ BEGIN
 
   INSERT INTO deal_images (id, image_url, poster_id) VALUES (
     vThumbId, vImageUrl , vUserId
-  );
+  ) RETURNING id INTO vImageId;
 
   INSERT INTO deals (
     id,
-    title, description,
+    title, description, thumbnail_id,
     latitude, longitude, point,
-    location_text, total_price, total_savings, quantity,
-    category_id, poster_id)
+    location_text, total_price, percent_discount, quantity,
+    category_id, poster_id, posted_at)
   VALUES (
     vDealId,
-    'deal1', 'some shirt',
+    'deal1', 'some shirt', vImageId,
     vLat, vLong, ST_MakePoint(103.8198, 1.3521),
     'singapura mall', 40, 10.5, 2,
-    vCatId, vUserId
+    vCatId, vUserId, now() AT TIME ZONE 'UTC'
   );
 
   INSERT INTO deal_memberships (user_id, deal_id) VALUES (

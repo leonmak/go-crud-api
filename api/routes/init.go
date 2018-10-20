@@ -24,19 +24,20 @@ func InitRouter() {
 		middleware.Use(handleDeal, auth)).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/memberships", getDealMembersByDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal/{dealId}/membership/{userId}",
+	api.HandleFunc("/deal/{dealId}/membership/{userId}", getDealMembershipByUserId).Methods(http.MethodGet)
+	api.HandleFunc("/deal_membership",
 		middleware.Use(handleDealMembership, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/likes", getDealLikeSummaryByDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal/{dealId}/like/{userId}",
+	api.HandleFunc("/deal_like",
 		middleware.Use(handleDealLike, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/images", getDealImageUrlsByDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal/{dealId}/image/{userId}",
+	api.HandleFunc("/deal_image",
 		middleware.Use(handleDealImage, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/comments", getDealCommentsByDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal/{dealId}/comment/{userId}",
+	api.HandleFunc("/deal_comment",
 		middleware.Use(handleDealComment, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	// User

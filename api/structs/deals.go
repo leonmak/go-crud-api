@@ -18,15 +18,15 @@ type Deal struct {
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
 	// exact location text, open in maps
-	LocationText	*string 	`json:"locationText,omitempty",db:"location_text"`
-	TotalPrice		*float32	`json:"totalPrice,omitempty",db:"total_price"`
-	TotalSavings	*float32	`json:"totalSavings,omitempty",db:"total_savings"`
-	Quantity		*uint		`json:"quantity,omitempty",db:"quantity"`
-	CategoryID		uint		`json:"categoryId",db:"category_id"`
-	PosterID		string		`json:"posterId",db:"poster_id"`
-	PostedAt		time.Time	`json:"postedAt",db:"posted_at"`
-	UpdatedAt		*time.Time	`json:"updatedAt,omitempty",db:"updated_at"`
-	InactiveAt		*time.Time	`json:"inactiveAt,omitempty",db:"inactive_at"`
+	LocationText    *string    `json:"locationText,omitempty",db:"location_text"`
+	TotalPrice      *float32   `json:"totalPrice,omitempty",db:"total_price"`
+	PercentDiscount *float32   `json:"percentDiscount,omitempty",db:"percent_discount"`
+	Quantity        *uint      `json:"quantity,omitempty",db:"quantity"`
+	CategoryID      uint       `json:"categoryId",db:"category_id"`
+	PosterID        string     `json:"posterId",db:"poster_id"`
+	PostedAt        time.Time  `json:"postedAt",db:"posted_at"`
+	UpdatedAt       *time.Time `json:"updatedAt,omitempty",db:"updated_at"`
+	InactiveAt      *time.Time `json:"inactiveAt,omitempty",db:"inactive_at"`
 }
 
 type DealCategory struct {
@@ -40,7 +40,6 @@ type DealMembership struct {
 	User		User		`json:"user"`
 	DealID		string		`json:"dealId",db:"deal_id"`
 	JoinedAt	time.Time	`json:"joinedAt",db:"joined_at"`
-	LeftAt		*time.Time	`json:"leftAt,omitEmpty",db:"left_at"`
 }
 
 type DealImage struct {

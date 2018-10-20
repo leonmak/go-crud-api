@@ -24,6 +24,14 @@ func ReadResponseToJson(resp *http.Response) (respJson UnstructuredJSON) {
 	return respJson
 }
 
+func WriteSuccessJsonResponse(w http.ResponseWriter, message string) {
+	WriteJsonResponse(w, "success", message)
+}
+
+func WriteErrorJsonResponse(w http.ResponseWriter, message string) {
+	WriteJsonResponse(w, "error", message)
+}
+
 func WriteJsonResponse(w http.ResponseWriter, key string, values ...interface{}) {
 	if len(values) == 1 {
 		jsonRespMap := make(map[string]interface{})
