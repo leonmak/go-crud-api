@@ -23,20 +23,23 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	pageSize := 30
 	postedAtColName := "posted_at"
 
+	// Collect filters for getting deals
 	values := r.URL.Query()
 	var filterStrings []string
 
+	// Text filter
 	searchText := values.Get("search_text")
 	var queryParams []interface{}
 	colCount := 0
 	filterStr := ""
 	if searchText != "" {
+		// queryParams replace dollar placeholders ($1, $2, etc.) for db to validate
 		colCount++
-		titleFuzzyFilter := fmt.Sprintf("title $%d", colCount)
-		filterStrings = append(filterStrings, titleFuzzyFilter)
+		filterStrings = append(filterStrings, fmt.Sprintf("title $%d", colCount))
 		queryParams = append(queryParams, searchText)
 	}
 
+	// Date filters, <-before & after-> range query
 	dateFilter := ""
 	before := values.Get("before")
 	after := values.Get("after")
@@ -47,41 +50,45 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	afterT, err := time.Parse(iso8601Layout, after)
 	if hasAfter || hasBefore {
 		if hasAfter != hasBefore {
-			http.Error(w, "`before` or `after` is missing", http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, "`before` or `after` is missing")
 			return
 		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, err.Error())
 			return
 		}
 		if beforeT.After(afterT) {
-			http.Error(w, "`before` is later than `after`", http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, "`before` is later than `after`")
 			return
 		}
 		// Get date filter string, after most recent, or between before least recent and after floor.
-		dateFilter = fmt.Sprintf("(d.%s > $%d OR d.%s < $%d)", postedAtColName, colCount+1, postedAtColName, colCount+2)
+		dateFilter = fmt.Sprintf("(d.%s > $%d OR d.%s < $%d)",
+			postedAtColName, colCount+1, postedAtColName, colCount+2)
 		colCount += 2
 		filterStrings = append(filterStrings, dateFilter)
 		queryParams = append(queryParams, afterT, beforeT)
 	}
 
+	// Posted by filter
 	posterId := values.Get("poster_id")
 	if posterId != "" {
 		if !utils.IsValidUUID(posterId) {
-			http.Error(w, "invalid poster id", http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, "invalid poster id")
 			return
 		}
 		posterIdColName := "poster_id"
-		posterIdFilter := fmt.Sprintf("%s = %s ", posterIdColName, posterId)
+		posterIdFilter := fmt.Sprintf("%s = $%s ", posterIdColName, posterId)
 		filterStrings = append(filterStrings, posterIdFilter)
 	}
 
+	// Category filter
 	categoryId, err := strconv.Atoi(values.Get("category_id"))
 	if err == nil {
 		categoryFilter := fmt.Sprintf("category_id = %d", categoryId)
 		filterStrings = append(filterStrings, categoryFilter)
 	}
 
+	// Location filter
 	radiusStr := values.Get("radius_km")
 	latStr, lngStr := values.Get("latitude"), values.Get("longitude")
 	radiusKm, errRadius := strconv.Atoi(radiusStr)
@@ -102,7 +109,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		errStr = "Invalid lat/lng"
 	}
 	if errStr != "" {
-		http.Error(w, errStr, http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, errStr)
 		return
 	}
 	if hasLat && hasLng && hasRadius {
@@ -113,6 +120,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, distanceFilter)
 	}
 
+	// Inactive filter
 	showInactive, err := strconv.ParseBool(values.Get("show_inactive"))
 	hideInactiveStr := "inactive_at IS NULL"
 	if err == nil && showInactive {
@@ -126,11 +134,19 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		d.category_id, d.poster_id, d.posted_at, 
 		d.updated_at, d.inactive_at FROM deals d LEFT JOIN deal_images i on d.id=i.deal_id`
 
+	// Join on member
+	memberId, err := getURLParamUUID("memberId", r)
+	if err == nil && memberId != "" {
+		selectCols += " LEFT JOIN deal_memberships m on d.id = m.deal_id"
+		colCount++
+		filterStrings = append(filterStrings, fmt.Sprintf("m.user_id = $%d", colCount))
+		queryParams = append(queryParams, memberId)
+	}
+
 	var deals []structs.Deal
 	var rows *sql.Rows
 
 	// NOTE: Ensure all user-defined strings are in query parameters
-
 	filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
 	orderByStr := fmt.Sprintf("ORDER BY d.%s DESC", postedAtColName)
 	limitStr := fmt.Sprintf("LIMIT %d", pageSize)
@@ -139,7 +155,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	rows, err = env.Db.Query(query, queryParams...)
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 
@@ -152,7 +168,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
 			&deal.UpdatedAt, &deal.InactiveAt)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			utils.WriteErrorJsonResponse(w, err.Error())
 			return
 		}
 		deals = append(deals, deal)
@@ -164,7 +180,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	// set struct to pointer to omit on empty
 	// e.g. InactiveAt	 *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 	} else {
 		w.Write(dealArr)
 	}
@@ -174,7 +190,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 func GetDeal(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 
@@ -194,7 +210,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 		&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
 		&deal.UpdatedAt, &deal.InactiveAt)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	dealArr, err := json.Marshal(deal)
@@ -202,7 +218,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 		dealArr = []byte("[]")
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	} else {
 		w.Write(dealArr)
@@ -234,7 +250,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	// 5. Update deal thumbnail id to be first imageUrl received
 	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	colValues := make(map[string]interface{})
@@ -270,11 +286,11 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 			}
 
 		default:
-			http.Error(w, fmt.Sprintf("Invalid key '%s'", key), http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid key '%s'", key))
 			return
 		}
 		if !ok {
-			http.Error(w, fmt.Sprintf("Invalid value '%s'", val), http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid value '%s'", val))
 			return
 		}
 	}
@@ -284,7 +300,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	reqCols := []string{"title", "description", "category_id", "poster_id"}
 	for _, reqCol := range reqCols {
 		if _, hasCol := colValues[reqCol]; !hasCol {
-			http.Error(w, fmt.Sprintf("Missing required field %s", reqCol), http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Missing required field %s", reqCol))
 			return
 		}
 	}
@@ -293,13 +309,13 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	lat, hasLat := colValues["latitude"]
 	lng, hasLng := colValues["longitude"]
 	if hasLat && hasLng && (hasLat != hasLng) {
-		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w,"Missing lat or lng")
 		return
 	}
 
 	posterId := colValues["poster_id"].(string)
 	if !utils.IsValidUUID(posterId) {
-		http.Error(w, "invalid user id", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, "invalid user id")
 		return
 	}
 	// END Validations
@@ -333,7 +349,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	var dealId string
 	err = env.Db.QueryRow(query, vals...).Scan(&dealId)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 
@@ -345,7 +361,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 			"INSERT into deal_images (deal_id, image_url, poster_id) VALUES ($1, $2, $3) RETURNING id;",
 			dealId, imageURL, posterId).Scan(&dealImageId)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			utils.WriteErrorJsonResponse(w, err.Error())
 			return
 		}
 		if i == 0  {
@@ -353,7 +369,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 	}
 
 	// Insert membership
@@ -362,15 +378,18 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		"INSERT INTO deal_memberships (user_id, deal_id) VALUES ($1, $2) RETURNING id",
 		posterId, dealId).Scan(&membershipId)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 	}
 
-	err = env.Db.QueryRow("UPDATE deals SET thumbnail_id=$1 WHERE id=$2 RETURNING id",
-		thumbnailImageId, dealId).Scan(&dealId)
+	// Update deal's thumbnail lid
+	if thumbnailImageId != "" {
+		err = env.Db.QueryRow("UPDATE deals SET thumbnail_id=$1 WHERE id=$2 RETURNING id",
+			thumbnailImageId, dealId).Scan(&dealId)
+	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 	} else {
-		w.Write([]byte(dealId))
+		utils.WriteJsonResponse(w, "dealId", dealId)
 	}
 }
 
@@ -380,19 +399,19 @@ func handleDeal(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet: GetDeal(w, r)
 	case http.MethodPut: UpdateDeal(w, r)
 	case http.MethodDelete: SetInactiveDeal(w, r)
-	default: http.Error(w, fmt.Sprintf("Method not supported %s", r.Method), http.StatusBadRequest)
+	default: utils.WriteErrorJsonResponse(w, fmt.Sprintf("Method not supported %s", r.Method))
 	}
 }
 
 func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, "no deal id found", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, "no deal id found")
 		return
 	}
 	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	var queryValues []interface{}
@@ -417,11 +436,11 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 			val, ok = value.(float64)
 			colValues[snakeKey] = val
 		default:
-			http.Error(w, fmt.Sprintf("Invalid key '%s'", key), http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid key '%s'", key))
 			return
 		}
 		if !ok {
-			http.Error(w, fmt.Sprintf("Invalid value '%s'", val), http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid value '%s'", val))
 			return
 		}
 	}
@@ -439,7 +458,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	lat, hasLat := colValues["latitude"]
 	lng, hasLng := colValues["longitude"]
 	if (hasLat || hasLng) && hasLat != hasLng {
-		http.Error(w,"Missing lat or lng", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w,"Missing lat or lng")
 		return
 	}
 	if hasLat && hasLng {
@@ -451,7 +470,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	var dealIdReturned string
 	err = env.Db.QueryRow(query, queryValues...).Scan(&dealIdReturned)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	w.Write([]byte(dealIdReturned))
@@ -480,20 +499,20 @@ func getURLParam(param string, r *http.Request) (string, error) {
 func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	_, err = env.Db.Query(`UPDATE deals SET inactive_at = $1 WHERE id = $2`, time.Now(), dealId)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 	}
 }
 
-func getDealMembershipByUserId(w http.ResponseWriter, r *http.Request) {
-	dealId, dealIdErr := getURLParam("dealId", r)
-	userId, userIdErr := getURLParam("userId", r)
+func getDealMembershipByUserIdDealId(w http.ResponseWriter, r *http.Request) {
+	dealId, dealIdErr := getURLParamUUID("dealId", r)
+	userId, userIdErr := getURLParamUUID("userId", r)
 	if userIdErr != nil || dealIdErr != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, "invalid request")
 		return
 	}
 	userIdMember := ""
@@ -507,7 +526,7 @@ func getDealMembershipByUserId(w http.ResponseWriter, r *http.Request) {
 func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	var dealMembers []structs.DealMembership
@@ -524,7 +543,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	}
 	membersBytes, err := json.Marshal(dealMembers)
 	if err != nil {
-		http.Error(w, "invalid json", http.StatusUnprocessableEntity)
+		utils.WriteErrorJsonResponse(w, "invalid json")
 		return
 	}
 	w.Write(membersBytes)
@@ -533,13 +552,13 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 func handleDealMembership(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	dealId, dealIdOk := result["dealId"].(string)
 	userId, userIdOk := result["userId"].(string)
 	if !dealIdOk || !userIdOk {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	switch r.Method {
@@ -556,14 +575,14 @@ func handleDealMembership(w http.ResponseWriter, r *http.Request) {
 			log.Print(fmt.Sprintf("Removed membership for user '%s' in deal '%s'", userId, dealId))
 			utils.WriteSuccessJsonResponse(w, "Removed membership")
 		}
-	default: http.Error(w, fmt.Sprintf("Method not supported %s", r.Method), http.StatusBadRequest)
+	default: utils.WriteErrorJsonResponse(w, fmt.Sprintf("Method not supported %s", r.Method))
 	}
 	// Handle errors
 	switch err {
 	case sql.ErrNoRows: log.Printf("User has no membership")
 	default: return
 	}
-	http.Error(w, err.Error(), http.StatusInternalServerError)
+	utils.WriteErrorJsonResponse(w, err.Error())
 }
 
 func JoinDeal(dealId string, userId string) (dealMembershipId string, err error) {
@@ -585,27 +604,27 @@ func LeaveDeal(dealId string, userId string) (err error) {
 func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	var imageUrls []string
 	rows, err := env.Db.Query(`SELECT image_url from deal_images WHERE deal_id = $1`, dealId)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var imageUrl string
 		if err := rows.Scan(&imageUrl); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			utils.WriteErrorJsonResponse(w, err.Error())
 			return
 		}
 		imageUrls = append(imageUrls, imageUrl)
 	}
 	imageURLStr, err := json.Marshal(imageUrls)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	w.Write(imageURLStr)
@@ -614,7 +633,7 @@ func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 func handleDealImage(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	var dealImageId string
@@ -625,7 +644,7 @@ func handleDealImage(w http.ResponseWriter, r *http.Request) {
 		posterId := result["posterId"].(string)
 		_, err := url.Parse(imageUrl)
 		if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(posterId) || err != nil {
-			http.Error(w, "invalid id", http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, "invalid id")
 			return
 		}
 		err = env.Db.QueryRow("INSERT INTO deal_images(deal_id, poster_id, image_url) VALUES($1, $2, $3)",
@@ -633,14 +652,14 @@ func handleDealImage(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		dealImageId := result["dealImageId"].(string)
 		if !utils.IsValidUUID(dealImageId) {
-			http.Error(w, "invalid id", http.StatusBadRequest)
+			utils.WriteErrorJsonResponse(w, "invalid id")
 			return
 		}
 		err = env.Db.QueryRow("UPDATE deal_images SET removed_at = $1", time.Now).Scan(&dealImageId)
-	default: http.Error(w, fmt.Sprintf("Method not supported %s", r.Method), http.StatusBadRequest)
+	default: utils.WriteErrorJsonResponse(w, fmt.Sprintf("Method not supported %s", r.Method))
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	utils.WriteJsonResponse(w, "result", "Updated deal image")
@@ -649,7 +668,7 @@ func handleDealImage(w http.ResponseWriter, r *http.Request) {
 func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	var upVotes int
@@ -666,7 +685,7 @@ func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	res := &result{upVotes: upVotes, downVotes: downVotes}
 	resStr, err := json.Marshal(res)
 	if err != nil {
-		http.Error(w, "invalid json", http.StatusUnprocessableEntity)
+		utils.WriteErrorJsonResponse(w, "invalid json")
 	}
 	w.Write(resStr)
 }
@@ -674,14 +693,14 @@ func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 func handleDealLike(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	dealId, ok := result["dealId"].(string)
 	userId, ok := result["userId"].(string)
 	upVote, ok := result["upVote"].(bool)
 	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !upVote || !ok {
-		http.Error(w, "invalid value", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, "invalid value")
 		return
 	}
 	switch r.Method {
@@ -694,11 +713,11 @@ func handleDealLike(w http.ResponseWriter, r *http.Request) {
 		err = env.Db.QueryRow(`UPDATE deal_likes SET is_upvote = NULL 
 			WHERE user_id = $1 AND deal_id = $2 RETURNING id`, userId, dealId).Scan(&dealId)
 	default:
-		http.Error(w, "Method not supported", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, "Method not supported")
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	utils.WriteJsonResponse(w, "result",
@@ -708,7 +727,7 @@ func handleDealLike(w http.ResponseWriter, r *http.Request) {
 func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	var dealComments []structs.DealComment
@@ -725,7 +744,7 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 	}
 	dealCommentBytes, err := json.Marshal(dealComments)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	w.Write(dealCommentBytes)
@@ -734,14 +753,14 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 func handleDealComment(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	dealId, ok := result["dealId"].(string)
 	userId, ok := result["userId"].(string)
 	comment, ok := result["comment"].(string)
 	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !ok || len(comment) > 256 {
-		http.Error(w, "invalid input", http.StatusBadRequest)
+		utils.WriteErrorJsonResponse(w, "invalid input")
 		return
 	}
 	var dealCommentId string
@@ -759,7 +778,7 @@ func handleDealComment(w http.ResponseWriter, r *http.Request) {
 			time.Now()).Scan(&dealCommentId)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
 	utils.WriteJsonResponse(w, "result",
