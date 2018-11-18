@@ -1,3 +1,4 @@
+-- DROP PREVIOUS TABLE
 ALTER TABLE deals
   DROP CONSTRAINT IF EXISTS deals_thumbnail_id_fkey,
   DROP CONSTRAINT IF EXISTS deals_category_id_fkey,
@@ -8,6 +9,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";  -- uuid
 CREATE EXTENSION IF NOT EXISTS "postgis";    -- geography & location
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";    -- similarity
 
+
+-- CREATE NEW TABLES
 CREATE TABLE deals
 (
   id                uuid primary key default uuid_generate_v4(),
@@ -35,9 +38,9 @@ CREATE TABLE deal_categories
 (
   id              smallserial primary key,
   name            text not null,
-  max_images      integer default 12,
-  max_active_days integer default 21,
-  CHECK (length(name) <= 42)
+  display_name    text not null,
+  CHECK (length(name) <= 42),
+  CHECK (length(display_name) <= 42)
 );
 
 CREATE TABLE deal_memberships
@@ -82,16 +85,15 @@ CREATE TABLE deal_comments
   CHECK (length(comment_str) <= 256)
 );
 
-
-ALTER TABLE deals ADD CONSTRAINT deals_thumbnail_id_fkey
-FOREIGN KEY (thumbnail_id) REFERENCES deal_images(id) ON DELETE CASCADE;
-ALTER TABLE deals ADD CONSTRAINT deals_category_id_fkey
-FOREIGN KEY (category_id) REFERENCES deal_categories(id) ON DELETE CASCADE;
-ALTER TABLE deals ADD CONSTRAINT deals_poster_id_fkey
-FOREIGN KEY (poster_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE deals
+  ADD CONSTRAINT deals_thumbnail_id_fkey FOREIGN KEY (thumbnail_id) REFERENCES deal_images(id) ON DELETE CASCADE,
+  ADD CONSTRAINT deals_category_id_fkey FOREIGN KEY (category_id) REFERENCES deal_categories(id) ON DELETE CASCADE,
+  ADD CONSTRAINT deals_poster_id_fkey FOREIGN KEY (poster_id) REFERENCES users(id) ON DELETE CASCADE;
 
 
+-- FILL INITIAL TABLE
 BEGIN;
+
 DO $$
 DECLARE
   vDealId uuid := 'f3c80460-de56-42c4-855f-82dda631fee1';
@@ -99,13 +101,16 @@ DECLARE
   vUserId uuid := 'eab30e15-fded-46fc-93f4-af0cb2a0ebd8';
   vImageUrl text := 'https://via.placeholder.com/350x150.jpg';
   vCatId int := 1;
-  vLat decimal := 1.3501484;
-  vLong decimal := 103.8486871;
+  vLat float := 1.3501484;
+  vLong float := 103.8486871;
   vImageId uuid;
+
 BEGIN
-  INSERT INTO deal_categories (name) VALUES
-    ('app'), ('sale'), ('tickets'), ('snacks'), ('electronics'),
-    ('clothing'), ('shirts'), ('pants'), ('drinks'), ('food'), ('shoes');
+  INSERT INTO deal_categories (name, display_name) VALUES
+    ('app', 'Apps'),         ('concert', 'Concert'),     ('gadgets', 'Gadgets'), ('games', 'Games'),       ('men', 'Men''s'),         ('ship', 'Boating'),
+    ('arts', 'Arts'),        ('cycling', 'Cycling'),     ('eyewear', 'Eye Wear'),     ('gift', 'Gifts'),        ('movie', 'Movies'),       ('snacks', 'Snacks'),
+    ('book', 'Books'),        ('desert', 'Deserts'),      ('fast-food', 'Fast Food'),   ('jewellery', 'Jewellery'),   ('plane', 'Plane'),       ('takeaway', 'Takeout'),
+    ('cafe', 'Cafe'),        ('drinks', 'Drinks'),      ('footwear', 'Footwear'),    ('karaoke', 'Karaoke'),     ('sale', 'Sales'),        ('women', 'Women''s');
 
   INSERT INTO deal_images (id, image_url, poster_id) VALUES (
     vThumbId, vImageUrl , vUserId
@@ -128,8 +133,7 @@ BEGIN
   INSERT INTO deal_memberships (user_id, deal_id) VALUES (
     vUserId, vDealId
   );
-
-
 END
-$$;
-COMMIT;
+
+$$; -- end DO
+COMMIT; -- end BEGIN

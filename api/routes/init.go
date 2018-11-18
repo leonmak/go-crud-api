@@ -38,7 +38,10 @@ func InitRouter() {
 
 	api.HandleFunc("/deal/{dealId}/comments", getDealCommentsByDealId).Methods(http.MethodGet)
 	api.HandleFunc("/deal_comment",
-		middleware.Use(handleDealComment, auth)).Methods(http.MethodPost, http.MethodDelete)
+		middleware.Use(handleDealComment, auth)).Methods(http.MethodPost, http.MethodPut, http.MethodDelete)
+
+	// Featured Banner Content
+	api.HandleFunc("/suggestions", getSuggestions).Methods(http.MethodGet)
 
 	// User
 	// TODO: Get another user's profile stats

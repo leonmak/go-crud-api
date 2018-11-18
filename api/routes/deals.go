@@ -28,15 +28,14 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	var filterStrings []string
 
 	// Text filter
-	searchText := values.Get("search_text")
 	var queryParams []interface{}
 	colCount := 0
 	filterStr := ""
-	if searchText != "" {
+	if searchText, ok := values["searchText"]; ok {
 		// queryParams replace dollar placeholders ($1, $2, etc.) for db to validate
 		colCount++
-		filterStrings = append(filterStrings, fmt.Sprintf("title $%d", colCount))
-		queryParams = append(queryParams, searchText)
+		filterStrings = append(filterStrings, " title % " + fmt.Sprintf("$%d", colCount))
+		queryParams = append(queryParams, searchText[0])
 	}
 
 	// Date filters, <-before & after-> range query
@@ -70,26 +69,25 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Posted by filter
-	posterId := values.Get("poster_id")
+	posterId := values.Get("posterId")
 	if posterId != "" {
 		if !utils.IsValidUUID(posterId) {
 			utils.WriteErrorJsonResponse(w, "invalid poster id")
 			return
 		}
-		posterIdColName := "poster_id"
-		posterIdFilter := fmt.Sprintf("%s = $%s ", posterIdColName, posterId)
+		posterIdFilter := fmt.Sprintf("poster_id = $%s ", posterId)
 		filterStrings = append(filterStrings, posterIdFilter)
 	}
 
 	// Category filter
-	categoryId, err := strconv.Atoi(values.Get("category_id"))
+	categoryId, err := strconv.Atoi(values.Get("categoryId"))
 	if err == nil {
 		categoryFilter := fmt.Sprintf("category_id = %d", categoryId)
 		filterStrings = append(filterStrings, categoryFilter)
 	}
 
 	// Location filter
-	radiusStr := values.Get("radius_km")
+	radiusStr := values.Get("radiusKm")
 	latStr, lngStr := values.Get("latitude"), values.Get("longitude")
 	radiusKm, errRadius := strconv.Atoi(radiusStr)
 	lat, errPoint := strconv.ParseFloat(latStr, 64)
@@ -121,12 +119,12 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Inactive filter
-	showInactive, err := strconv.ParseBool(values.Get("show_inactive"))
-	hideInactiveStr := "inactive_at IS NULL"
+	showInactive, err := strconv.ParseBool(values.Get("showInactive"))
+	hideInactiveStr := ""
 	if err == nil && showInactive {
-		hideInactiveStr = ""
+		hideInactiveStr = "inactive_at IS NOT NULL"
+		filterStrings = append(filterStrings, hideInactiveStr)
 	}
-	filterStrings = append(filterStrings, hideInactiveStr)
 
 	selectCols := `SELECT d.id, d.title, d.description, i.image_url,
 		d.latitude, d.longitude, d.location_text, 
@@ -228,10 +226,10 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 func getDealCategories(w http.ResponseWriter, r *http.Request) {
 	var categories []structs.DealCategory
 	var rows *sql.Rows
-	rows, err := env.Db.Query(`SELECT id, name, max_images, max_active_days from deal_categories`)
+	rows, err := env.Db.Query(`SELECT id, name, display_name from deal_categories`)
 	for rows.Next() {
 		var category structs.DealCategory
-		err = rows.Scan(&category.ID, &category.Name, &category.MaxImages, &category.MaxActiveDays)
+		err = rows.Scan(&category.ID, &category.Name, &category.DisplayName)
 		categories = append(categories, category)
 	}
 	if err != nil {
@@ -256,13 +254,13 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	colValues := make(map[string]interface{})
 	ok := true
 	var val interface{}
-	var imageURLs []string
+	var imageURL string
 	for key, value := range result {
 		snakeKey := strcase.ToSnake(key)
 		switch key {
 		case "title": fallthrough
 		case "description": fallthrough
-		case "posterId": ;fallthrough
+		case "posterId": fallthrough
 		case "locationText":
 			val, ok = value.(string)
 			colValues[snakeKey] = val
@@ -274,20 +272,11 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		case "quantity":
 			val, ok = value.(float64)
 			colValues[snakeKey] = val
-		case "images":
-			switch value := value.(type) {
-			case []interface{}:
-				for _, urlStr := range value {
-					urlStrs := urlStr.(string)
-					if urlStrs != "" {
-						imageURLs = append(imageURLs, strings.TrimSpace(urlStrs))
-					}
-				}
-			}
-
+		case "imageUrl":
+			imageURL, ok = value.(string)
 		default:
-			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid key '%s'", key))
-			return
+			log.Printf("Invalid key '%s'", key)
+			continue
 		}
 		if !ok {
 			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid value '%s'", val))
@@ -334,7 +323,6 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	}
 	valuePlaceholderStr := strings.Join(valuePlaceholders, ",")
 	if hasLat && hasLng {
-
 		colsStr += ",point"
 		valuePlaceholderStr += fmt.Sprintf(",%s",
 			utils.MakePointString(lat.(float64), lng.(float64)))
@@ -353,20 +341,14 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert images
+	// Insert image
 	var thumbnailImageId string
-	for i, imageURL := range imageURLs {
-		var dealImageId string
-		err = env.Db.QueryRow(
-			"INSERT into deal_images (deal_id, image_url, poster_id) VALUES ($1, $2, $3) RETURNING id;",
-			dealId, imageURL, posterId).Scan(&dealImageId)
-		if err != nil {
-			utils.WriteErrorJsonResponse(w, err.Error())
-			return
-		}
-		if i == 0  {
-			thumbnailImageId = dealImageId
-		}
+	err = env.Db.QueryRow(
+		"INSERT into deal_images (deal_id, image_url, poster_id) VALUES ($1, $2, $3) RETURNING id",
+		dealId, imageURL, posterId).Scan(&thumbnailImageId)
+	if err != nil {
+		utils.WriteErrorJsonResponse(w, err.Error())
+		return
 	}
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
@@ -418,6 +400,8 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	ok := true
 	var val interface{}
 	colValues := make(map[string]interface{})
+	var imageURL string
+	var posterId string
 	for key, value := range result {
 		snakeKey := strcase.ToSnake(key)
 		switch key {
@@ -435,15 +419,28 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		case "quantity":
 			val, ok = value.(float64)
 			colValues[snakeKey] = val
+		case "imageUrl": imageURL, ok = value.(string)
+		case "posterId": posterId, ok = value.(string)
 		default:
-			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid key '%s'", key))
-			return
+			log.Printf("Invalid key '%s'", key)
+			continue
 		}
 		if !ok {
 			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Invalid value '%s'", val))
 			return
 		}
 	}
+
+	// Insert thumbnail image of deal id if doesn't exist
+	var thumbnailImageId string
+	err = env.Db.QueryRow("UPDATE deal_images SET image_url=$1 WHERE (deal_id=$2 AND poster_id=$3) RETURNING id",
+		imageURL, dealId, posterId).Scan(&thumbnailImageId)
+	if err != nil {
+		utils.WriteErrorJsonResponse(w, err.Error())
+		return
+	}
+
+	// Form query string
 	colValues["updated_at"] = time.Now()
 	updateStrings := make([]string, len(colValues))
 	i := 0
@@ -473,7 +470,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
-	w.Write([]byte(dealIdReturned))
+	utils.WriteSuccessJsonResponse(w, fmt.Sprintf("deal %s updated", dealIdReturned))
 }
 
 func getURLParamUUID(paramName string, r *http.Request) (string, error) {
@@ -530,15 +527,14 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var dealMembers []structs.DealMembership
-	rows, err := env.Db.Query(`SELECT u.id, u.display_name, u.image_url, deal_id, joined_at
+	rows, err := env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at
 		FROM users u INNER JOIN deal_memberships m 
 		ON u.id = m.user_id 
 		WHERE m.deal_id = $1`, dealId)
 	defer rows.Close()
 	for rows.Next() {
 		var member structs.DealMembership
-		rows.Scan(&member.User.ID, &member.User.DisplayName, &member.User.ImageURL,
-			&member.DealID, &member.JoinedAt)
+		rows.Scan(&member.User.ID, &member.User.DisplayName, &member.User.ImageURL, &member.JoinedAt)
 		dealMembers = append(dealMembers, member)
 	}
 	membersBytes, err := json.Marshal(dealMembers)
@@ -731,7 +727,8 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 	var dealComments []structs.DealComment
-	rows, err := env.Db.Query(`SELECT deal_id, user_id, u.display_name as user_name, comment_str, posted_at 
+	rows, err := env.Db.Query(`SELECT d.deal_id, d.user_id, u.display_name, d.comment_str, d.posted_at 
+-- 			AS user_name, comment_str, posted_at 
  			FROM deal_comments d
  			INNER JOIN users u ON u.id = d.user_id 
 			WHERE removed_at ISNULL AND deal_id = $1`, dealId)

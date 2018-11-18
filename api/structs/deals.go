@@ -32,13 +32,12 @@ type Deal struct {
 type DealCategory struct {
 	ID				uint 	`json:"id",db:"id"`
 	Name 			string 	`json:"name",db:"name"`
-	MaxImages		uint	`json:"maxImages",db:"max_images"`
-	MaxActiveDays	uint	`json:"maxActiveDays",db:"max_active_days"`
+	DisplayName 	string 	`json:"displayName",db:"display_name"`
 }
 
 type DealMembership struct {
 	User		User		`json:"user"`
-	DealID		string		`json:"dealId",db:"deal_id"`
+	DealID		string		`json:"dealId,omitempty",db:"deal_id"`
 	JoinedAt	time.Time	`json:"joinedAt",db:"joined_at"`
 }
 
@@ -50,15 +49,15 @@ type DealImage struct {
 
 type DealLikes struct {
 	ID			string 		`json:"id"`
-	DealID		string		`json:"dealId",db:"deal_id"`
+	DealID		string		`json:"dealId,omitempty",db:"deal_id"`
 	UserID		string		`json:"userId",db:"user_id"`
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
 	IsUpVote	bool		`json:"isUpvote",db:"is_upvote"`
 }
 
 type DealComment struct {
-	Username	string 		`json:"username"`
-	DealID		string		`json:"dealId",db:"deal_id"`
+	Username	string 		`json:"username",db:"username"`
+	DealID		string		`json:"dealId,omitempty",db:"deal_id"`
 	UserID		string 		`json:"userId",db:"user_id"`
 	Comment		string		`json:"comment",db:"comment"`
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
