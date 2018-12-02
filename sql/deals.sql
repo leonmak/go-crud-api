@@ -26,7 +26,7 @@ CREATE TABLE deals
   point             geography,
   location_text     text,
   poster_id         uuid not null,
-  posted_at         timestamp default now(),
+  posted_at         timestamp default timezone('utc', now()),
   updated_at        timestamp,
   inactive_at       timestamp,
   CHECK (length(title) <= 128),
@@ -49,7 +49,7 @@ CREATE TABLE deal_memberships
   id          uuid primary key default uuid_generate_v4(),
   user_id     uuid references users(id),
   deal_id     uuid references deals(id),
-  joined_at   timestamp default now(),
+  joined_at   timestamp default timezone('utc', now()),
   UNIQUE(user_id, deal_id)
 );
 
@@ -59,7 +59,7 @@ CREATE TABLE deal_images
   deal_id     uuid references deals(id),
   image_url   text not null,
   poster_id   uuid references users(id),
-  posted_at   timestamp default now(),
+  posted_at   timestamp default timezone('utc', now()),
   removed_at  timestamp,
   CHECK (length(image_url) <= 256) -- refer to cloudinary public id max len
 );
@@ -69,7 +69,7 @@ CREATE TABLE deal_likes
   id          uuid primary key default uuid_generate_v4(),
   deal_id     uuid references deals(id),
   user_id     uuid references users(id),
-  posted_at   timestamp default now(),
+  posted_at   timestamp default timezone('utc', now()),
   is_upvote   bool,
   -- nullable for no vote
   UNIQUE(user_id, deal_id)
@@ -81,7 +81,7 @@ CREATE TABLE deal_comments
   deal_id     uuid references deals(id),
   user_id     uuid references users(id),
   comment_str text not null,
-  posted_at   timestamp default now(),
+  posted_at   timestamp default timezone('utc', now()),
   removed_at  timestamp,
   CHECK (length(comment_str) <= 256)
 );

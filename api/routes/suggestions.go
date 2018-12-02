@@ -18,7 +18,7 @@ func getSuggestions(w http.ResponseWriter, r *http.Request) {
 	var suggestions []structs.Suggestion
 	var rows *sql.Rows
 
-	rows, err = env.Db.Query("SELECT search_string, poster_id, category_id, latitude, longitude, radius_km, banner_url FROM suggestions WHERE inactive_by > $1", afterT)
+	rows, err = env.Db.Query("SELECT search_string, poster_id, category_id, latitude, longitude, radius_km, banner_url FROM suggestions WHERE active_from < $1 AND $1 < inactive_by", afterT)
 	defer rows.Close()
 	for rows.Next() {
 		var s structs.Suggestion
