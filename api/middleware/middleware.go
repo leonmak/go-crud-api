@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"net/http"
-	"groupbuying.online/config"
 	"github.com/gorilla/sessions"
+	"groupbuying.online/api/structs"
+	"net/http"
 )
 
 type Middleware func(http.HandlerFunc) http.HandlerFunc
@@ -17,7 +17,7 @@ func Use(h http.HandlerFunc, middleware ...Middleware) http.HandlerFunc {
 	return h
 }
 
-func GetAuthMiddleware(store *sessions.CookieStore, conf *config.Configuration) Middleware {
+func GetAuthMiddleware(store *sessions.CookieStore, conf *structs.Config) Middleware {
 	return func(h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			session, _ := store.Get(r, conf.SessionName)

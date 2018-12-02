@@ -1,6 +1,6 @@
-package config
+package structs
 
-type Configuration struct {
+type Config struct {
 	Port 			int			`json:"port"`
 	DBDriverName	string		`json:"dbDriverName"`
 	DBSourceName	string		`json:"dbSourceName"`

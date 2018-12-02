@@ -128,7 +128,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 
 	selectCols := `SELECT d.id, d.title, d.description, i.image_url,
 		d.latitude, d.longitude, d.location_text, 
-		d.total_price, d.percent_discount, d.quantity, 
+		d.total_price, d.quantity, d.benefits,
 		d.category_id, d.poster_id, d.posted_at, 
 		d.updated_at, d.inactive_at FROM deals d LEFT JOIN deal_images i on d.id=i.deal_id`
 
@@ -162,7 +162,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		var deal structs.Deal
 		err = rows.Scan(&deal.ID, &deal.Title, &deal.Description, &deal.ThumbnailUrl,
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
-			&deal.TotalPrice, &deal.PercentDiscount, &deal.Quantity,
+			&deal.TotalPrice, &deal.Quantity, &deal.Benefits,
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
 			&deal.UpdatedAt, &deal.InactiveAt)
 		if err != nil {
@@ -194,7 +194,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 
 	selectCols := `SELECT title, description, thumbnail_id, 
 		latitude, longitude, location_text, 
-		total_price, percent_discount, quantity, 
+		total_price, quantity, benefits, 
 		category_id, poster_id, posted_at, 
 		updated_at, inactive_at FROM deals`
 
@@ -204,7 +204,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	err = env.Db.QueryRow(query, dealId).Scan(
 		&deal.Title, &deal.Description, &deal.ThumbnailUrl,
 		&deal.Latitude, &deal.Longitude, &deal.LocationText,
-		&deal.TotalPrice, &deal.PercentDiscount, &deal.Quantity,
+		&deal.TotalPrice, &deal.Quantity, &deal.Benefits,
 		&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
 		&deal.UpdatedAt, &deal.InactiveAt)
 	if err != nil {
@@ -261,6 +261,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		case "title": fallthrough
 		case "description": fallthrough
 		case "posterId": fallthrough
+		case "benefits": fallthrough
 		case "locationText":
 			val, ok = value.(string)
 			colValues[snakeKey] = val
@@ -268,7 +269,6 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		case "longitude": fallthrough
 		case "categoryId": fallthrough
 		case "totalPrice": fallthrough
-		case "percentDiscount": fallthrough
 		case "quantity":
 			val, ok = value.(float64)
 			colValues[snakeKey] = val

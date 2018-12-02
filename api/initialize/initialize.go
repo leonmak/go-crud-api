@@ -10,9 +10,9 @@ import (
 	"github.com/gorilla/sessions"
 	_ "github.com/lib/pq"
 
-	"groupbuying.online/config"
 	"groupbuying.online/api/routes"
 	"groupbuying.online/api/env"
+	"groupbuying.online/api/structs"
 )
 
 // TODO: Implement:
@@ -53,11 +53,11 @@ func initSessionStore() {
 	env.Store = sessions.NewCookieStore(key)
 }
 
-func getConfiguration(envType string) (*config.Configuration, error) {
+func getConfiguration(envType string) (*structs.Config, error) {
 	if envType == "" {
 		envType = "dev"
 	}
-	var configuration config.Configuration
+	var configuration structs.Config
 	file, err := os.Open("config/" + envType + ".json")
 	if err != nil {
 		return nil, err

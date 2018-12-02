@@ -16,20 +16,21 @@ CREATE TABLE deals
   id                uuid primary key default uuid_generate_v4(),
   title             text not null,
   description       text not null,
+  category_id       serial not null,
+  total_price       decimal(15,2),
+  quantity          int,
+  benefits          text,
   thumbnail_id      uuid,
   latitude          float,
   longitude         float,
   point             geography,
   location_text     text,
-  total_price       decimal(15,2),
-  percent_discount  decimal(5,2),
-  quantity          int,
-  category_id       serial not null,
   poster_id         uuid not null,
   posted_at         timestamp default now(),
   updated_at        timestamp,
   inactive_at       timestamp,
   CHECK (length(title) <= 128),
+  CHECK (length(benefits) <= 128),
   CHECK (length(description) <= 512),
   CHECK (length(location_text) <= 128)
 );
@@ -107,9 +108,9 @@ DECLARE
 
 BEGIN
   INSERT INTO deal_categories (name, display_name) VALUES
-    ('app', 'Apps'),         ('concert', 'Concert'),     ('gadgets', 'Gadgets'), ('games', 'Games'),       ('men', 'Men''s'),         ('ship', 'Boating'),
-    ('arts', 'Arts'),        ('cycling', 'Cycling'),     ('eyewear', 'Eye Wear'),     ('gift', 'Gifts'),        ('movie', 'Movies'),       ('snacks', 'Snacks'),
-    ('book', 'Books'),        ('desert', 'Deserts'),      ('fast-food', 'Fast Food'),   ('jewellery', 'Jewellery'),   ('plane', 'Plane'),       ('takeaway', 'Takeout'),
+    ('app', 'Apps'),         ('concert', 'Concert'),     ('gadgets', 'Gadgets'), ('games', 'Games'),       ('men', 'Men''s'),
+    ('arts', 'Arts'),        ('cycling', 'Sports'),     ('eyewear', 'Eyewear'),     ('gift', 'Gifts'),        ('movie', 'Movies'),       ('snacks', 'Snacks'),
+    ('book', 'Books'),        ('desert', 'Deserts'),      ('fast-food', 'Fast Food'),     ('plane', 'Plane'),       ('takeaway', 'Takeout'),
     ('cafe', 'Cafe'),        ('drinks', 'Drinks'),      ('footwear', 'Footwear'),    ('karaoke', 'Karaoke'),     ('sale', 'Sales'),        ('women', 'Women''s');
 
   INSERT INTO deal_images (id, image_url, poster_id) VALUES (
@@ -120,13 +121,13 @@ BEGIN
     id,
     title, description, thumbnail_id,
     latitude, longitude, point,
-    location_text, total_price, percent_discount, quantity,
+    location_text, total_price, benefits, quantity,
     category_id, poster_id, posted_at)
   VALUES (
     vDealId,
     'deal1', 'some shirt', vImageId,
     vLat, vLong, ST_MakePoint(103.8198, 1.3521),
-    'singapura mall', 40, 10.5, 2,
+    'singapura mall', 40, 'get 10% cashback', 2,
     vCatId, vUserId, now() AT TIME ZONE 'UTC'
   );
 

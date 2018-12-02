@@ -11,6 +11,10 @@ type Deal struct {
 	// uuid for dynamic tables for easier sharding
 	Title			string		`json:"title",db:"title"`
 	Description 	string		`json:"description",db:"description"`
+	CategoryID      uint        `json:"categoryId",db:"category_id"`
+	TotalPrice      *float32    `json:"totalPrice,omitempty",db:"total_price"`
+	Quantity        *uint       `json:"quantity,omitempty",db:"quantity"`
+	Benefits    	*string     `json:"benefits,omitempty",db:"benefits"`
 	// pointer for possible nil values
 	// first image in upload is thumbnailID
 	ThumbnailUrl 	*string 	`json:"thumbnailUrl,omitempty",db:"thumbnail_id"`
@@ -18,15 +22,11 @@ type Deal struct {
 	Latitude		*float64	`json:"latitude,omitempty",db:"latitude"`
 	Longitude		*float64	`json:"longitude,omitempty",db:"longitude"`
 	// exact location text, open in maps
-	LocationText    *string    `json:"locationText,omitempty",db:"location_text"`
-	TotalPrice      *float32   `json:"totalPrice,omitempty",db:"total_price"`
-	PercentDiscount *float32   `json:"percentDiscount,omitempty",db:"percent_discount"`
-	Quantity        *uint      `json:"quantity,omitempty",db:"quantity"`
-	CategoryID      uint       `json:"categoryId",db:"category_id"`
-	PosterID        string     `json:"posterId",db:"poster_id"`
-	PostedAt        time.Time  `json:"postedAt",db:"posted_at"`
-	UpdatedAt       *time.Time `json:"updatedAt,omitempty",db:"updated_at"`
-	InactiveAt      *time.Time `json:"inactiveAt,omitempty",db:"inactive_at"`
+	LocationText    *string     `json:"locationText,omitempty",db:"location_text"`
+	PosterID        string      `json:"posterId",db:"poster_id"`
+	PostedAt        time.Time   `json:"postedAt",db:"posted_at"`
+	UpdatedAt       *time.Time  `json:"updatedAt,omitempty",db:"updated_at"`
+	InactiveAt      *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
 }
 
 type DealCategory struct {
