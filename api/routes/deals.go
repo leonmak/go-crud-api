@@ -1,21 +1,22 @@
 package routes
 
 import (
-	"net/http"
-	"time"
-	"fmt"
-	"groupbuying.online/utils"
-	"groupbuying.online/api/structs"
-	"strconv"
 	"database/sql"
-	"strings"
 	"encoding/json"
-	"github.com/iancoleman/strcase"
-	"github.com/gorilla/mux"
 	"errors"
-	"net/url"
+	"fmt"
+	"github.com/asaskevich/govalidator"
+	"github.com/gorilla/mux"
+	"github.com/iancoleman/strcase"
 	"groupbuying.online/api/env"
+	"groupbuying.online/api/structs"
+	"groupbuying.online/utils"
 	"log"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
 )
 
 func getDeals(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +87,13 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, categoryFilter)
 	}
 
+	// Country filter
+	countryCode := values.Get("countryCode")
+	if countryCode != "" && govalidator.IsISO3166Alpha2(countryCode) {
+		countryCodeFilter := fmt.Sprintf("country_code = '%s'", countryCode)
+		filterStrings = append(filterStrings, countryCodeFilter)
+	}
+
 	// Location filter
 	radiusStr := values.Get("radiusKm")
 	latStr, lngStr := values.Get("latitude"), values.Get("longitude")
@@ -133,8 +141,8 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		d.updated_at, d.inactive_at FROM deals d LEFT JOIN deal_images i on d.id=i.deal_id`
 
 	// Join on member
-	memberId, err := getURLParamUUID("memberId", r)
-	if err == nil && memberId != "" {
+	memberId := values.Get("memberId")
+	if memberId != "" {
 		selectCols += " LEFT JOIN deal_memberships m on d.id = m.deal_id"
 		colCount++
 		filterStrings = append(filterStrings, fmt.Sprintf("m.user_id = $%d", colCount))
@@ -262,6 +270,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		case "description": fallthrough
 		case "posterId": fallthrough
 		case "benefits": fallthrough
+		case "countryCode": fallthrough
 		case "locationText":
 			val, ok = value.(string)
 			colValues[snakeKey] = val
@@ -285,13 +294,21 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// START Validations:
+
 	// check if not null fields are all present
-	reqCols := []string{"title", "description", "category_id", "poster_id"}
+	reqCols := []string{"title", "description", "category_id", "poster_id", "country_code"}
 	for _, reqCol := range reqCols {
 		if _, hasCol := colValues[reqCol]; !hasCol {
 			utils.WriteErrorJsonResponse(w, fmt.Sprintf("Missing required field %s", reqCol))
 			return
 		}
+	}
+
+	// check if valid country code
+	countryCode, hasCode := colValues["country_code"]
+	if hasCode && !govalidator.IsISO3166Alpha2(countryCode.(string)) {
+		utils.WriteErrorJsonResponse(w,"Invalid country code")
+		return
 	}
 
 	// check if both lat lng together, convert to sql format
@@ -350,9 +367,6 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-	}
 
 	// Insert membership
 	var membershipId string
@@ -361,6 +375,7 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 		posterId, dealId).Scan(&membershipId)
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
+		return
 	}
 
 	// Update deal's thumbnail lid

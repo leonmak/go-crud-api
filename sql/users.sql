@@ -13,6 +13,9 @@ CREATE TABLE users
   image_url             text,
   verify_email_sent_at  timestamp,
   verified_at           timestamp,
+  country_code          char(2),
+  reputation            int default 0,
+  featured_posts        int default 0,
   CHECK (length(display_name) <= 42),
   CHECK (length(password_digest) <= 60),
   CHECK (length(image_url) <= 256)
@@ -25,8 +28,8 @@ DO $$
   DECLARE
     vUserId uuid := 'eab30e15-fded-46fc-93f4-af0cb2a0ebd8';
   BEGIN
-    INSERT INTO users (id, email, password_digest, display_name)
-    VALUES (vUserId, 'leon.mak@u.nus.edu', 'password_d','leon');
+    INSERT INTO users (id, email, password_digest, display_name, country_code)
+    VALUES (vUserId, 'leon.mak@u.nus.edu', 'password_d', 'leon', 'US');
   END
 $$;
 COMMIT;

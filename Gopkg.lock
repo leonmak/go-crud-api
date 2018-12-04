@@ -10,6 +10,14 @@
   revision = "825bcfa87a5747840787a9e168c6f2e1129c8fe3"
 
 [[projects]]
+  digest = "1:320e7ead93de9fd2b0e59b50fd92a4d50c1f8ab455d96bc2eb083267453a9709"
+  name = "github.com/asaskevich/govalidator"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "ccb8e960c48f04d6935e72476ae4a51028f9e22f"
+  version = "v9"
+
+[[projects]]
   digest = "1:8f8811f9be822914c3a25c6a071e93beb4c805d7b026cbf298bc577bc1cc945b"
   name = "github.com/google/uuid"
   packages = ["."]
@@ -84,6 +92,7 @@
   analyzer-version = 1
   input-imports = [
     "github.com/Automattic/go-gravatar",
+    "github.com/asaskevich/govalidator",
     "github.com/google/uuid",
     "github.com/gorilla/mux",
     "github.com/gorilla/sessions",

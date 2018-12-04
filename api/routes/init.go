@@ -18,7 +18,6 @@ func InitRouter() {
 	api.HandleFunc("/deals", getDeals).Methods(http.MethodGet)
 	api.HandleFunc("/deals", middleware.Use(postDeal, auth)).Methods(http.MethodPost)
 	api.HandleFunc("/deals/categories", getDealCategories).Methods(http.MethodGet)
-	api.HandleFunc("/deals/membership/{memberId}", middleware.Use(getDeals, auth)).Methods(http.MethodGet)
 
 	api.HandleFunc("/deal/{dealId}",
 		middleware.Use(handleDeal, auth)).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)

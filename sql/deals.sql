@@ -29,10 +29,14 @@ CREATE TABLE deals
   posted_at         timestamp default timezone('utc', now()),
   updated_at        timestamp,
   inactive_at       timestamp,
+  is_featured       boolean default false,
+  featured_url      text,
+  country_code      char(2),
   CHECK (length(title) <= 128),
   CHECK (length(benefits) <= 128),
   CHECK (length(description) <= 512),
-  CHECK (length(location_text) <= 128)
+  CHECK (length(location_text) <= 128),
+  CHECK (length(featured_url) <= 2048)
 );
 
 CREATE TABLE deal_categories
@@ -98,9 +102,10 @@ BEGIN;
 DO $$
 DECLARE
   vDealId uuid := 'f3c80460-de56-42c4-855f-82dda631fee1';
+  vDealId2 uuid := 'f3c80460-de56-42c4-855f-82dda631fee2';
   vThumbId uuid := '93dda1a7-67a4-4e81-abcf-f3a2aba687f4';
   vUserId uuid := 'eab30e15-fded-46fc-93f4-af0cb2a0ebd8';
-  vImageUrl text := 'https://via.placeholder.com/350x150.jpg';
+  vImageUrl text := 'https://via.placeholder.com/350x100.jpg';
   vCatId int := 1;
   vLat float := 1.3501484;
   vLong float := 103.8486871;
@@ -108,28 +113,50 @@ DECLARE
 
 BEGIN
   INSERT INTO deal_categories (name, display_name) VALUES
-    ('app', 'Apps'),         ('concert', 'Concert'),     ('gadgets', 'Gadgets'), ('games', 'Games'),       ('men', 'Men''s'),
-    ('arts', 'Arts'),        ('cycling', 'Sports'),     ('eyewear', 'Eyewear'),     ('gift', 'Gifts'),        ('movie', 'Movies'),       ('snacks', 'Snacks'),
-    ('book', 'Books'),        ('desert', 'Deserts'),      ('fast-food', 'Fast Food'),     ('plane', 'Plane'),       ('takeaway', 'Takeout'),
-    ('cafe', 'Cafe'),        ('drinks', 'Drinks'),      ('footwear', 'Footwear'),    ('karaoke', 'Karaoke'),     ('sale', 'Sales'),        ('women', 'Women''s');
+    ('app', 'Apps'),
+    ('concert', 'Concert'),
+    ('gadgets', 'Gadgets'),
+    ('games', 'Games'),
+    ('men', 'Men''s'),
+    ('arts', 'Arts'),
+    ('cycling', 'Sports'),
+    ('eyewear', 'Eyewear'),
+    ('gift', 'Gifts'),
+    ('movie', 'Movies'),
+    ('snacks', 'Snacks'),
+    ('book', 'Books'),
+    ('desert', 'Deserts'),
+    ('fast-food', 'Fast Food'),
+    ('plane', 'Plane'),
+    ('takeaway', 'Takeout'),
+    ('cafe', 'Cafe'),
+    ('drinks', 'Drinks'),
+    ('footwear', 'Footwear'),
+    ('karaoke', 'Karaoke'),
+    ('sale', 'Sales'),
+    ('women', 'Women''s');
 
   INSERT INTO deal_images (id, image_url, poster_id) VALUES (
     vThumbId, vImageUrl , vUserId
   ) RETURNING id INTO vImageId;
 
-  INSERT INTO deals (
-    id,
-    title, description, thumbnail_id,
-    latitude, longitude, point,
-    location_text, total_price, benefits, quantity,
-    category_id, poster_id, posted_at)
-  VALUES (
-    vDealId,
-    'deal1', 'some shirt', vImageId,
-    vLat, vLong, ST_MakePoint(103.8198, 1.3521),
-    'singapura mall', 40, 'get 10% cashback', 2,
-    vCatId, vUserId, now() AT TIME ZONE 'UTC'
-  );
+  INSERT INTO deals (id, title, description, thumbnail_id,
+                     latitude, longitude, point, country_code,
+                     location_text, total_price, benefits, quantity,
+                     category_id, poster_id, posted_at, is_featured)
+  VALUES (vDealId, 'deal1', 'some shirt', vImageId,
+          vLat, vLong, ST_MakePoint(103.8198, 1.3521), 'US',
+          'p. singapura mall', 40, 'get 10% cashback', 2,
+          vCatId, vUserId, now() AT TIME ZONE 'UTC', false);
+
+  INSERT INTO deals (id, title, description, thumbnail_id,
+                     latitude, longitude, point, country_code,
+                     location_text, total_price, benefits, quantity,
+                     category_id, poster_id, posted_at, is_featured)
+  VALUES (vDealId2, 'deal2', 'some official shirt', vImageId,
+          vLat, vLong, ST_MakePoint(103.8198, 1.3521), 'US',
+         'p. singapura mall', 40, 'get 10% cashback', 2,
+          vCatId, vUserId, now() AT TIME ZONE 'UTC', true);
 
   INSERT INTO deal_memberships (user_id, deal_id) VALUES (
     vUserId, vDealId
