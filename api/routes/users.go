@@ -86,7 +86,7 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saveSession(w, r)
-	user := structs.User{ID: userId, DisplayName: creds.DisplayName, ImageURL: imageUrl}
+	user := structs.User{ID: userId, DisplayName: creds.DisplayName, ImageURL: &imageUrl}
 	respondUser(user, w)
 }
 
@@ -261,6 +261,6 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, "could not retrieve user")
 		return
 	}
-	user := structs.User{ID: id, ImageURL: creds.ImageUrl, DisplayName: creds.DisplayName}
+	user := structs.User{ID: id, ImageURL: &creds.ImageUrl, DisplayName: creds.DisplayName}
 	respondUser(user, w)
 }

@@ -743,7 +743,6 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 	}
 	var dealComments []structs.DealComment
 	rows, err := env.Db.Query(`SELECT d.deal_id, d.user_id, u.display_name, d.comment_str, d.posted_at 
--- 			AS user_name, comment_str, posted_at 
  			FROM deal_comments d
  			INNER JOIN users u ON u.id = d.user_id 
 			WHERE removed_at ISNULL AND deal_id = $1`, dealId)
