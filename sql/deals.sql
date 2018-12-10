@@ -125,7 +125,7 @@ BEGIN
     ('movie', 'Movies'),
     ('snacks', 'Snacks'),
     ('book', 'Books'),
-    ('desert', 'Deserts'),
+    ('finance', 'Finance'),
     ('fast-food', 'Fast Food'),
     ('plane', 'Plane'),
     ('takeaway', 'Takeout'),

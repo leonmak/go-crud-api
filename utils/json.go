@@ -1,10 +1,9 @@
 package utils
 
 import (
-	"net/http"
-	"io/ioutil"
 	"encoding/json"
-	"fmt"
+	"io/ioutil"
+	"net/http"
 )
 
 type UnstructuredJSON = map[string]interface{}
@@ -40,7 +39,7 @@ func WriteJsonResponse(w http.ResponseWriter, key string, values ...interface{})
 		if err == nil {
 			w.Write(jsonResp)
 		} else {
-			fmt.Errorf(err.Error())
+			WriteErrorJsonResponse(w, err.Error())
 		}
 	} else {
 		jsonRespMap := make(map[string][]interface{})
@@ -49,7 +48,7 @@ func WriteJsonResponse(w http.ResponseWriter, key string, values ...interface{})
 		if err == nil {
 			w.Write(jsonResp)
 		} else {
-			fmt.Errorf(err.Error())
+			WriteErrorJsonResponse(w, err.Error())
 		}
 	}
 }

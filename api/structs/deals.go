@@ -27,7 +27,7 @@ type Deal struct {
 	PostedAt        time.Time   `json:"postedAt",db:"posted_at"`
 	UpdatedAt       *time.Time  `json:"updatedAt,omitempty",db:"updated_at"`
 	InactiveAt      *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
-	CountryCode		string		`json:"countryCode",db:"country_code"`
+	CountryCode		*string		`json:"countryCode",db:"country_code"`
 	FeaturedUrl		url.URL		`json:"featuredUrl",db:"featured_url"`
 }
 
@@ -58,6 +58,7 @@ type DealLikes struct {
 }
 
 type DealComment struct {
+	ID			string 		`json:"id",db:"id"`
 	Username	string 		`json:"username",db:"username"`
 	DealID		string		`json:"dealId,omitempty",db:"deal_id"`
 	UserID		string 		`json:"userId",db:"user_id"`

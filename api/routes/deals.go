@@ -423,6 +423,8 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		case "title": fallthrough
 		case "description": fallthrough
 		case "thumbnailId": fallthrough
+		case "countryCode": fallthrough
+		case "benefits": fallthrough
 		case "locationText":
 			val, ok = value.(string)
 			colValues[snakeKey] = val
@@ -475,6 +477,16 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	}
 	if hasLat && hasLng {
 		updateStr += fmt.Sprintf(",point=%s", utils.MakePointString(lat.(float64), lng.(float64)))
+	} else {
+		updateStr += ",point=null"
+	}
+
+	// If no values sent for a column, it will be assumed to be removed and reset to NULL
+	resetCols := []string{"total_price", "quantity", "benefits", "thumbnail_id", "location_text"}
+	for _, colStr := range resetCols {
+		if _, ok := colValues[colStr]; !ok {
+			updateStr += fmt.Sprintf(",%s=null", colStr)
+		}
 	}
 
 	query := fmt.Sprintf(`UPDATE deals SET %s WHERE id = $%d RETURNING id`, updateStr, len(colValues)+1)
@@ -537,15 +549,43 @@ func getDealMembershipByUserIdDealId(w http.ResponseWriter, r *http.Request) {
 
 func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
+	values := r.URL.Query()
+	base := values.Get("base")
+	limit := values.Get("limit")
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
 		return
 	}
+	limitI, err := strconv.Atoi(limit)
+	if err != nil {
+		utils.WriteErrorJsonResponse(w, "Invalid limit")
+		return
+	}
 	var dealMembers []structs.DealMembership
-	rows, err := env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at
+	var rows *sql.Rows
+	if base != "" {
+		iso8601Layout := "2006-01-02T15:04:05Z"
+		baseT, err := time.Parse(iso8601Layout, base)
+		if err != nil {
+			utils.WriteErrorJsonResponse(w, "Wrong time")
+			return
+		}
+		rows, err = env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at
 		FROM users u INNER JOIN deal_memberships m 
 		ON u.id = m.user_id 
-		WHERE m.deal_id = $1`, dealId)
+		WHERE m.deal_id = $1 AND m.joined_at > $2
+		ORDER BY joined_at
+		LIMIT $3;
+		`, dealId, baseT, limitI)
+	} else {
+		rows, err = env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at
+		FROM users u INNER JOIN deal_memberships m 
+		ON u.id = m.user_id 
+		WHERE m.deal_id = $1 
+		ORDER BY joined_at
+		LIMIT $2;
+		`, dealId, limitI)
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var member structs.DealMembership
@@ -676,6 +716,19 @@ func handleDealImage(w http.ResponseWriter, r *http.Request) {
 	utils.WriteJsonResponse(w, "result", "Updated deal image")
 }
 
+func getDealLikeByUserId(w http.ResponseWriter, r *http.Request) {
+	dealId, err := getURLParamUUID("dealId", r)
+	userId, err := getURLParamUUID("userId", r)
+	if err != nil {
+		utils.WriteErrorJsonResponse(w, err.Error())
+		return
+	}
+	isUpvote := false
+	env.Db.QueryRow("SELECT is_upvote from deal_likes WHERE deal_id=$1 AND user_id=$2",
+		dealId, userId).Scan(&isUpvote)
+	utils.WriteJsonResponse(w, "isUpvote", isUpvote)
+}
+
 func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	if err != nil {
@@ -710,7 +763,7 @@ func handleDealLike(w http.ResponseWriter, r *http.Request) {
 	dealId, ok := result["dealId"].(string)
 	userId, ok := result["userId"].(string)
 	upVote, ok := result["upVote"].(bool)
-	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !upVote || !ok {
+	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !ok {
 		utils.WriteErrorJsonResponse(w, "invalid value")
 		return
 	}
@@ -742,14 +795,14 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 	var dealComments []structs.DealComment
-	rows, err := env.Db.Query(`SELECT d.deal_id, d.user_id, u.display_name, d.comment_str, d.posted_at 
+	rows, err := env.Db.Query(`SELECT d.id, d.deal_id, d.user_id, u.display_name, d.comment_str, d.posted_at 
  			FROM deal_comments d
  			INNER JOIN users u ON u.id = d.user_id 
 			WHERE removed_at ISNULL AND deal_id = $1`, dealId)
 	defer rows.Close()
 	for rows.Next() {
 		var dealComment structs.DealComment
-		err = rows.Scan(&dealComment.DealID, &dealComment.UserID, &dealComment.Username,
+		err = rows.Scan(&dealComment.ID, &dealComment.DealID, &dealComment.UserID, &dealComment.Username,
 			&dealComment.Comment, &dealComment.PostedAt)
 		dealComments = append(dealComments, dealComment)
 	}
@@ -770,7 +823,12 @@ func handleDealComment(w http.ResponseWriter, r *http.Request) {
 	dealId, ok := result["dealId"].(string)
 	userId, ok := result["userId"].(string)
 	comment, ok := result["comment"].(string)
-	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !ok || len(comment) > 256 {
+	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) || !ok || len(comment) > 240 {
+		utils.WriteErrorJsonResponse(w, "invalid input")
+		return
+	}
+	id, ok := result["id"].(string)
+	if !ok && r.Method != http.MethodPost {
 		utils.WriteErrorJsonResponse(w, "invalid input")
 		return
 	}
@@ -782,11 +840,11 @@ func handleDealComment(w http.ResponseWriter, r *http.Request) {
 			RETURNING id`,
 			userId, dealId, comment).Scan(&dealCommentId)
 	case http.MethodPut:
-		err = env.Db.QueryRow(`UPDATE deal_comments SET comment_str = $1 WHERE user_id = $2 RETURNING id`,
-			comment, userId).Scan(dealCommentId)
+		err = env.Db.QueryRow(`UPDATE deal_comments SET comment_str = $1 WHERE id = $2 RETURNING id`,
+			comment, id).Scan(&dealCommentId)
 	case http.MethodDelete:
-		err = env.Db.QueryRow(`UPDATE deal_comments SET removed_at = $1 RETURNING id`,
-			time.Now()).Scan(&dealCommentId)
+		err = env.Db.QueryRow(`UPDATE deal_comments SET removed_at = $1 WHERE id=$2 RETURNING id`,
+			time.Now(), id).Scan(&dealCommentId)
 	}
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())

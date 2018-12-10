@@ -28,6 +28,7 @@ func InitRouter() {
 		middleware.Use(handleDealMembership, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/likes", getDealLikeSummaryByDealId).Methods(http.MethodGet)
+	api.HandleFunc("/deal/{dealId}/like/{userId}", getDealLikeByUserId).Methods(http.MethodGet)
 	api.HandleFunc("/deal_like",
 		middleware.Use(handleDealLike, auth)).Methods(http.MethodPost, http.MethodDelete)
 
