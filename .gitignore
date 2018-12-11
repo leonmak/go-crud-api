@@ -3,6 +3,7 @@ vendor/
 
 .env
 config/production.json
+config/serviceAccountKey.json
 config/dev.json
 
 sql/world.sql

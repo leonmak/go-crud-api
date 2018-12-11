@@ -1,17 +1,15 @@
 package routes
 
 import (
-	"golang.org/x/crypto/bcrypt"
-	"net/http"
+	"context"
 	"encoding/json"
-	"log"
-	"database/sql"
-	"groupbuying.online/api/structs"
-	"groupbuying.online/api/env"
 	"fmt"
-	"groupbuying.online/utils"
-	"time"
 	"github.com/Automattic/go-gravatar"
+	"groupbuying.online/api/env"
+	"groupbuying.online/api/structs"
+	"groupbuying.online/utils"
+	"log"
+	"net/http"
 	"strings"
 )
 
@@ -43,20 +41,10 @@ func getUserByEmail(email string) (user structs.User, err error){
 }
 
 // Auth
-func CheckPasswordHash(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
-}
-
 func logoutUser(w http.ResponseWriter, r *http.Request) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	session.Values["authenticated"] = false
 	session.Save(r, w)
-}
-
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
-	return string(bytes), err
 }
 
 func getGravatarUrl(email string) (url string) {
@@ -64,68 +52,86 @@ func getGravatarUrl(email string) (url string) {
 	return g.GetURL()
 }
 
+// Insert a new user with unverified email
 func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	creds := &structs.UserCredentials{}
 	err := json.NewDecoder(r.Body).Decode(creds)
-	if err != nil || creds.DisplayName == "" || !utils.IsValidUsername(creds.DisplayName) {
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintln(w, "Invalid submission.")
-		utils.WriteError(w, "invalid username")
+		utils.WriteError(w, "invalid input")
 		return
 	}
-	passwordDigest, err := HashPassword(creds.Password)
-	userId := ""
+	if err = utils.IsValidUsername(creds.DisplayName); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		utils.WriteError(w, err.Error())
+		return
+	}
+	err = verifyToken(creds.Token)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		utils.WriteError(w, "invalid token")
+		return
+	}
+	var userId string
 	creds.Email = strings.ToLower(creds.Email)
 	imageUrl := getGravatarUrl(creds.Email)
-	err = env.Db.QueryRow("INSERT INTO USERS (email, password_digest, display_name, image_url) " +
+	err = env.Db.QueryRow("INSERT INTO USERS " +
+		"(email, display_name, image_url, auth_type) " +
 		"VALUES ($1, $2, $3, $4) RETURNING id;",
-		creds.Email, passwordDigest, creds.DisplayName, imageUrl).Scan(&userId)
+		creds.Email, creds.DisplayName, imageUrl, "email").Scan(&userId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		utils.WriteError(w, "user already exists")
 		return
 	}
-	saveSession(w, r)
 	user := structs.User{ID: userId, DisplayName: creds.DisplayName, ImageURL: &imageUrl}
 	respondUser(user, w)
 }
 
+func verifyToken(idToken string) error {
+	ctx := context.Background()
+	client, err := env.Firebase.Auth(ctx)
+	if err != nil {
+		log.Fatalf("error getting Auth client: %v\n", err)
+	}
+	_, err = client.VerifyIDToken(ctx, idToken)
+	if err != nil {
+		log.Fatalf("error verifying ID token: %v\n", err)
+	}
+	return err
+}
+
 func loginEmailUser(w http.ResponseWriter, r *http.Request) {
-	creds := &structs.UserCredentials{}
-	err := json.NewDecoder(r.Body).Decode(creds)
-	creds.Email = strings.ToLower(creds.Email)
+	result, err := utils.ReadRequestToJson(r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	log.Printf("Attempted login with email: %s", creds.Email)
-
-	var passwordDigest string
-	user := structs.User{}
-	err = env.Db.QueryRow("select id, image_url, display_name, password_digest from users where email=$1",
-		creds.Email).Scan(&user.ID, &user.ImageURL, &user.DisplayName, &passwordDigest)
-	switch err {
-	case sql.ErrNoRows:
-		w.WriteHeader(http.StatusUnauthorized)
-		utils.WriteError(w, "username / password mismatch")
-		log.Printf("Login Failed as user doesn't exist")
-	case nil:
-		if !CheckPasswordHash(creds.Password, passwordDigest) {
-			w.WriteHeader(http.StatusUnauthorized)
-			utils.WriteError(w, "username / password mismatch")
-			log.Printf("Login Failed as password mismatched")
-			return
-		}
-		// Save authenticated session if successful
-		log.Printf("Login Successful")
-		w.WriteHeader(http.StatusOK)
-		saveSession(w, r)
-		respondUser(user, w)
-	default:
-		w.WriteHeader(http.StatusInternalServerError)
-		log.Printf("Login Failed as db errored. %v", err)
-		utils.WriteError(w, "could not retrieve user")
+	email := result["email"].(string)
+	token := result["token"].(string)
+	if email == "" || token == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		utils.WriteError(w, "invalid input")
+		return
 	}
+	err = verifyToken(token)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		utils.WriteError(w, "invalid token")
+	}
+	user := structs.User{}
+	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
+		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		utils.WriteError(w, "error logging in")
+		return
+	}
+	// Save authenticated session if successful
+	log.Printf("Login Successful")
+	w.WriteHeader(http.StatusOK)
+	saveSession(w, r)
+	respondUser(user, w)
 }
 
 func writeRegisterJson(w http.ResponseWriter) {
@@ -252,10 +258,10 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 	creds := &structs.UserCredentialSocialMedia{}
 	err := json.NewDecoder(r.Body).Decode(creds)
 
-	var id string;
-	err = env.Db.QueryRow("INSERT INTO USERS (email, display_name, image_url, verified_at) " +
+	var id string
+	err = env.Db.QueryRow("INSERT INTO USERS (email, display_name, image_url, auth_type) " +
 		"VALUES ($1, $2, $3, $4) RETURNING id;",
-		creds.Email, creds.DisplayName, creds.ImageUrl, time.Now()).Scan(&id)
+		creds.Email, creds.DisplayName, creds.ImageUrl, creds.AuthType).Scan(&id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		utils.WriteError(w, "could not retrieve user")

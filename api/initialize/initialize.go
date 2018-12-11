@@ -1,19 +1,24 @@
 package initialize
 
 import (
-	"log"
+	"context"
 	"database/sql"
-	"os"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 
 	"github.com/gorilla/sessions"
 	_ "github.com/lib/pq"
 
-	"groupbuying.online/api/routes"
 	"groupbuying.online/api/env"
+	"groupbuying.online/api/routes"
 	"groupbuying.online/api/structs"
+
+	firebase "firebase.google.com/go"
+	"google.golang.org/api/option"
 )
+
 
 // TODO: Implement:
 // TODO: - csrf, rate limit middleware
@@ -28,6 +33,7 @@ func initEnv() {
 	initConfig()
 	initDB()
 	initSessionStore()
+	initFirebase()
 }
 
 func initConfig() {
@@ -43,6 +49,7 @@ func initDB() {
 	connStr := fmt.Sprintf("dbname=%s user=%s password=%s sslmode=disable",
 		env.Conf.DBSourceName, env.Conf.DBUsername, env.Conf.DBPassword)
 	env.Db, err = sql.Open("postgres", connStr)
+	env.Db.SetMaxIdleConns(100)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,4 +75,14 @@ func getConfiguration(envType string) (*structs.Config, error) {
 		return nil, err
 	}
 	return &configuration, err
+}
+
+
+func initFirebase() {
+	opt := option.WithCredentialsFile("config/serviceAccountKey.json")
+	var err error
+	env.Firebase, err = firebase.NewApp(context.Background(), nil, opt)
+	if err != nil {
+		log.Fatalf("error initializing app: %v\n", err)
+	}
 }
