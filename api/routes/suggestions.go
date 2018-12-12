@@ -1,13 +1,13 @@
 package routes
 
 import (
-	"net/http"
-	"time"
+	"database/sql"
+	"encoding/json"
 	"groupbuying.online/api/env"
 	"groupbuying.online/api/structs"
-	"database/sql"
-	"groupbuying.online/utils"
-	"encoding/json"
+	"groupbuying.online/api/utils"
+	"net/http"
+	"time"
 )
 
 func getSuggestions(w http.ResponseWriter, r *http.Request) {

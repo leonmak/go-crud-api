@@ -5,17 +5,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
-
 	"github.com/gorilla/sessions"
 	_ "github.com/lib/pq"
+	"google.golang.org/appengine"
+	"log"
+	"os"
 
 	"groupbuying.online/api/env"
 	"groupbuying.online/api/routes"
 	"groupbuying.online/api/structs"
 
-	firebase "firebase.google.com/go"
+	"firebase.google.com/go"
 	"google.golang.org/api/option"
 )
 
@@ -33,22 +33,26 @@ func initEnv() {
 	initConfig()
 	initDB()
 	initSessionStore()
-	initFirebase()
 }
 
 func initConfig() {
 	var err error
-	env.Conf, err = getConfiguration(os.Getenv("GO_ENV"))
+	configFolder := "config/"
+	if appengine.IsAppEngine() {
+		configFolder = "../config/"
+	}
+	env.Conf, err = getConfiguration(configFolder, os.Getenv("ENV"))
 	if err != nil {
 		log.Fatal(err)
 	}
+	initFirebase(configFolder)
 }
 
 func initDB() {
 	var err error
-	connStr := fmt.Sprintf("dbname=%s user=%s password=%s sslmode=disable",
-		env.Conf.DBSourceName, env.Conf.DBUsername, env.Conf.DBPassword)
-	env.Db, err = sql.Open("postgres", connStr)
+	connStr := fmt.Sprintf("host=%s port=%d dbname=%s user=%s password=%s sslmode=disable",
+		env.Conf.DBHost, env.Conf.DBPort, env.Conf.DBName, env.Conf.DBUsername, env.Conf.DBPassword)
+	env.Db, err = sql.Open(env.Conf.DBDriver, connStr)
 	env.Db.SetMaxIdleConns(100)
 	if err != nil {
 		log.Fatal(err)
@@ -60,12 +64,12 @@ func initSessionStore() {
 	env.Store = sessions.NewCookieStore(key)
 }
 
-func getConfiguration(envType string) (*structs.Config, error) {
+func getConfiguration(configFolder string, envType string) (*structs.Config, error) {
 	if envType == "" {
 		envType = "dev"
 	}
 	var configuration structs.Config
-	file, err := os.Open("config/" + envType + ".json")
+	file, err := os.Open(fmt.Sprintf("%s/%s.json", configFolder, envType))
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +82,8 @@ func getConfiguration(envType string) (*structs.Config, error) {
 }
 
 
-func initFirebase() {
-	opt := option.WithCredentialsFile("config/serviceAccountKey.json")
+func initFirebase(configFolder string) {
+	opt := option.WithCredentialsFile(fmt.Sprintf("%s/serviceAccountKey.json", configFolder))
 	var err error
 	env.Firebase, err = firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {

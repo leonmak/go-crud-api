@@ -10,7 +10,7 @@ import (
 	"github.com/iancoleman/strcase"
 	"groupbuying.online/api/env"
 	"groupbuying.online/api/structs"
-	"groupbuying.online/utils"
+	"groupbuying.online/api/utils"
 	"log"
 	"net/http"
 	"net/url"
@@ -153,7 +153,9 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 
 	// NOTE: Ensure all user-defined strings are in query parameters
-	filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
+	if len(filterStrings) > 0 {
+		filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
+	}
 	orderByStr := fmt.Sprintf("ORDER BY d.%s DESC", postedAtColName)
 	limitStr := fmt.Sprintf("LIMIT %d", pageSize)
 	query := selectCols + strings.Join([]string{filterStr, orderByStr, limitStr}, " ")

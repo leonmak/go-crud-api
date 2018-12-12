@@ -7,7 +7,9 @@ import (
 	"groupbuying.online/api/structs"
 )
 
-var Conf *structs.Config
-var Db *sql.DB
-var Store *sessions.CookieStore
-var Firebase *firebase.App
+var (
+	Conf *structs.Config
+	Db *sql.DB
+	Store *sessions.CookieStore
+	Firebase *firebase.App
+)

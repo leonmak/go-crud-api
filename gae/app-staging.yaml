@@ -1,0 +1,10 @@
+runtime: go
+api_version: go1
+env: standard
+env_variables:
+  ENV: "staging"
+beta_settings:
+  cloud_sql_instances: groupbuy-api-2018:asia-southeast1:groupbuy-api-staging=tcp:5432
+handlers:
+- url: /.*
+  script: app.gp

@@ -1,0 +1,14 @@
+{
+  "port": 8080,
+  "dbDriver": "postgres",
+  "dbHost": "localhost",
+  "dbPort": "5432",
+  "dbName": "groupbuy",
+  "dbUsername": "",
+  "dbPassword": "",
+  "sessionStoreKey": "random",
+  "sessionName": "session",
+  "csrfKey": "random",
+  "fbAppId": "",
+  "fbAppSecret": ""
+}

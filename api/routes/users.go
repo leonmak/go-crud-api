@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Automattic/go-gravatar"
+	"google.golang.org/appengine"
 	"groupbuying.online/api/env"
 	"groupbuying.online/api/structs"
-	"groupbuying.online/utils"
+	"groupbuying.online/api/utils"
 	"log"
 	"net/http"
 	"strings"
@@ -66,7 +67,7 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, err.Error())
 		return
 	}
-	err = verifyToken(creds.Token)
+	err = verifyToken(creds.Token, r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		utils.WriteError(w, "invalid token")
@@ -88,8 +89,11 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	respondUser(user, w)
 }
 
-func verifyToken(idToken string) error {
+func verifyToken(idToken string, r *http.Request) error {
 	ctx := context.Background()
+	if appengine.IsAppEngine() {
+		ctx = appengine.NewContext(r)
+	}
 	client, err := env.Firebase.Auth(ctx)
 	if err != nil {
 		log.Fatalf("error getting Auth client: %v\n", err)
@@ -114,7 +118,7 @@ func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, "invalid input")
 		return
 	}
-	err = verifyToken(token)
+	err = verifyToken(token, r)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		utils.WriteError(w, "invalid token")
@@ -167,7 +171,7 @@ func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	isValid := validateGoogleUserToken(creds.Email, creds.UserToken)
+	isValid := validateGoogleUserToken(creds.Email, creds.UserToken, r)
 	if !isValid {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -181,10 +185,10 @@ func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func validateGoogleUserToken(email string, userToken string) bool {
+func validateGoogleUserToken(email string, userToken string, r *http.Request) bool {
 	validateTokenLink := fmt.Sprintf(
 		"https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=%s", userToken)
-	resp, err := http.Get(validateTokenLink)
+	resp, err := utils.GetAppEngine(r, validateTokenLink)
 	if err != nil {
 		return false
 	}
@@ -193,6 +197,7 @@ func validateGoogleUserToken(email string, userToken string) bool {
 	isValid := jsonResp["email"].(string) == email
 	return isValid
 }
+
 
 // Facebook Auth
 func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
@@ -204,12 +209,12 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	appToken, err := getFacebookAppToken()
+	appToken, err := getFacebookAppToken(r)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	isValid := validateFacebookUserToken(appToken, creds.UserToken, creds.UserID)
+	isValid := validateFacebookUserToken(r, appToken, creds.UserToken, creds.UserID)
 	if !isValid {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -223,13 +228,13 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getFacebookAppToken() (appToken string, err error) {
+func getFacebookAppToken(r *http.Request) (appToken string, err error) {
 	clientId := env.Conf.FBAppId
 	clientSecret := env.Conf.FBAppSecret
 	appLink := "https://graph.facebook.com/oauth/access_token?client_id=" + clientId +
 		"&client_secret=" + clientSecret + "&grant_type=client_credentials"
 
-	resp, err := http.Get(appLink)
+	resp, err := utils.GetAppEngine(r, appLink)
 	if err != nil {
 		return "", fmt.Errorf("could not get FB App Token")
 	}
@@ -239,11 +244,11 @@ func getFacebookAppToken() (appToken string, err error) {
 	return appToken, nil
 }
 
-func validateFacebookUserToken(appToken string, userToken string, userId string) (bool) {
+func validateFacebookUserToken(r *http.Request, appToken string, userToken string, userId string) (bool) {
 	// Checks user token is valid and user_id in response is same as given userId
 	validateTokenLink := "https://graph.facebook.com/debug_token?input_token="+ userToken +
 		"&access_token=" + appToken
-	resp, err := http.Get(validateTokenLink)
+	resp, err := utils.GetAppEngine(r, validateTokenLink)
 	if err != nil {
 		return false
 	}

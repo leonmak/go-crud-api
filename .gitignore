@@ -1,9 +1,5 @@
 .idea/
 vendor/
 
-.env
-config/production.json
-config/serviceAccountKey.json
-config/dev.json
-
+config/
 sql/world.sql

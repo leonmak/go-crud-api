@@ -1,16 +1,20 @@
 package routes
 
 import (
-	"github.com/gorilla/mux"
-	"groupbuying.online/api/middleware"
-	"groupbuying.online/api/env"
-	"net/http"
 	"fmt"
+	"github.com/gorilla/mux"
+	"google.golang.org/appengine"
+	"groupbuying.online/api/env"
+	"groupbuying.online/api/middleware"
+
 	"log"
+	"net/http"
 )
 
 func InitRouter() {
 	router := mux.NewRouter()
+	router.HandleFunc("/heartbeat", heartbeat).Methods(http.MethodGet)
+
 	api := router.PathPrefix("/api").Subrouter()
 	auth := middleware.GetAuthMiddleware(env.Store, env.Conf)
 
@@ -53,7 +57,12 @@ func InitRouter() {
 	api.HandleFunc("/login/google", loginGoogleUser).Methods(http.MethodPost)
 	api.HandleFunc("/logout", middleware.Use(logoutUser, auth)).Methods(http.MethodPost)
 
-	fmt.Printf("listening on %d\n", env.Conf.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", env.Conf.Port), api))
+	if appengine.IsAppEngine() {
+		http.Handle("/", router)
+		appengine.Main()
+	} else {
+		fmt.Printf("listening on %d\n", env.Conf.Port)
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", env.Conf.Port), api))
+	}
 }
 

@@ -1,0 +1,8 @@
+runtime: go
+api_version: go1
+env: standard
+env_variables:
+  ENV: "dev"
+handlers:
+- url: /.*
+  script: app.go
