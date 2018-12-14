@@ -62,16 +62,20 @@ dep ensure
 ```bash
 # - Create database: 
 DATABASE_NAME=groupbuy
-INSTANCE_NAME=groupbuy-api-staging
-BUCKET_NAME=groupbuy-api
+INSTANCE_NAME=groupbuy-api-staging-pg96
+BUCKET_NAME=groupbuy-api-staging
+REGION=asia-east2
+gcloud sql instances create ${INSTANCE_NAME} --region=${REGION} --database-version=POSTGRES_9_6 --tier=db-f1-micro
 gcloud sql databases create ${DATABASE_NAME} --instance ${INSTANCE_NAME}
-
+# gcloud sql users create username123 --instance=${INSTANCE_NAME} --password=password123
+ 
 # - Create GCS bucket to store sql files:
+#gsutil -m rm -r gs://${BUCKET_NAME}    
 gsutil mb gs://${BUCKET_NAME}    
-gsutil cp -r ./sql/ gs://${BUCKET_NAME}/
-SVC_ACCOUNT_ADDRESS=`gcloud sql instances describe groupbuy-api-staging | grep service | sed -e 's/.*: //'`
+gsutil -m cp -r ./sql/ gs://${BUCKET_NAME}/
+SVC_ACCOUNT_ADDRESS=`gcloud sql instances describe ${INSTANCE_NAME} | grep service | sed -e 's/.*: //'`
 gsutil acl ch -u ${SVC_ACCOUNT_ADDRESS}:W gs://${BUCKET_NAME}
-gsutil acl ch -r -u ${SVC_ACCOUNT_ADDRESS}:R gs://${BUCKET_NAME}/
+gsutil -m acl ch -r -u ${SVC_ACCOUNT_ADDRESS}:R gs://${BUCKET_NAME}/
 
 # - Create tables with sql files:
 for i in `ls sql/common`; do
