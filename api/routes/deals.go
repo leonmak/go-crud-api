@@ -535,9 +535,9 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	err = env.Db.QueryRow(query, queryValues...).Scan(&dealIdReturned)
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
-		return
+	} else {
+		utils.WriteJsonResponse(w, "dealId", dealId)
 	}
-	utils.WriteSuccessJsonResponse(w, fmt.Sprintf("deal %s updated", dealIdReturned))
 }
 
 func getURLParamUUID(paramName string, r *http.Request) (string, error) {
