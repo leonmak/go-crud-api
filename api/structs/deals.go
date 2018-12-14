@@ -29,6 +29,9 @@ type Deal struct {
 	InactiveAt      *time.Time  `json:"inactiveAt,omitempty",db:"inactive_at"`
 	CountryCode		*string		`json:"countryCode",db:"country_code"`
 	FeaturedUrl		url.URL		`json:"featuredUrl",db:"featured_url"`
+	// derived columns
+	Likes			*uint		`json:"likes,omitEmpty"`
+	Members 		*uint		`json:"members,omitEmpty"`
 }
 
 type DealCategory struct {

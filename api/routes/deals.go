@@ -21,11 +21,32 @@ import (
 
 func getDeals(w http.ResponseWriter, r *http.Request) {
 	// static options
-	pageSize := 30
 	postedAtColName := "posted_at"
 
-	// Collect filters for getting deals
+	// default options
+	orderByColumn := postedAtColName
+	pageSize := 30
+	orderByDirection := "DESC"
+
 	values := r.URL.Query()
+
+	// Order By (only 1 column and direction)
+	orderByColName := values.Get("orderByColumn")
+	if orderByColName != "" && utils.IsValidOrderByColumn(orderByColName) {
+		orderByColumn = orderByColName
+	}
+	orderByDirectionName := values.Get("orderByDirection")
+	if utils.IsValidOrderDirection(orderByDirectionName) {
+		orderByDirection = orderByDirectionName
+	}
+
+	// Limit of query
+	if pageSizeNum, err := strconv.Atoi(values.Get("pageSize")); err == nil {
+		pageSize = pageSizeNum
+	}
+
+	// START filter
+	// Collect filters for getting deals
 	var filterStrings []string
 
 	// Text filter
@@ -128,24 +149,36 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 
 	// Inactive filter
 	showInactive, err := strconv.ParseBool(values.Get("showInactive"))
-	hideInactiveStr := ""
 	if err == nil && showInactive {
-		hideInactiveStr = "inactive_at IS NOT NULL"
+		hideInactiveStr := "inactive_at IS NOT NULL"
 		filterStrings = append(filterStrings, hideInactiveStr)
 	}
 
-	selectCols := `SELECT d.id, d.title, d.description, i.image_url,
+	// Featured filter
+	isFeatured, err := strconv.ParseBool(values.Get("isFeatured"))
+	if err == nil {
+		isFeaturedStr := fmt.Sprintf("is_featured = %t", isFeatured)
+		filterStrings = append(filterStrings, isFeaturedStr)
+	}
+	// END filter
+
+	selectCols := `SELECT d.id, d.title, d.description, d_i.image_url,
 		d.latitude, d.longitude, d.location_text, 
 		d.total_price, d.quantity, d.benefits,
 		d.category_id, d.poster_id, d.posted_at, 
-		d.updated_at, d.inactive_at FROM deals d LEFT JOIN deal_images i on d.id=i.deal_id`
+		d.updated_at, d.inactive_at, 
+		(SELECT COUNT(CASE WHEN d_l.is_upvote THEN 1 END) FROM deal_likes d_l WHERE d.id=d_l.deal_id) as likes,
+		(SELECT COUNT(*) FROM deal_memberships d_m WHERE d.id=d_m.deal_id) as members
+	`
+	fromTables := ` FROM deals d LEFT JOIN deal_images d_i on d.id=d_i.deal_id`
 
-	// Join on member
+	// In profile, get deals by those joined:
+	// - Join tables on member id
 	memberId := values.Get("memberId")
 	if memberId != "" {
-		selectCols += " LEFT JOIN deal_memberships m on d.id = m.deal_id"
+		fromTables += " LEFT JOIN deal_memberships d_m ON d.id=d_m.deal_id"
 		colCount++
-		filterStrings = append(filterStrings, fmt.Sprintf("m.user_id = $%d", colCount))
+		filterStrings = append(filterStrings, fmt.Sprintf("d_m.user_id=$%d", colCount))
 		queryParams = append(queryParams, memberId)
 	}
 
@@ -156,9 +189,12 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	if len(filterStrings) > 0 {
 		filterStr = " WHERE " + strings.Join(filterStrings, " AND ")
 	}
-	orderByStr := fmt.Sprintf("ORDER BY d.%s DESC", postedAtColName)
+	if orderByColumn == "total_price" || orderByColumn == "posted_at" {
+		orderByColumn = "d." + orderByColumn
+	}
+	orderByStr := fmt.Sprintf("ORDER BY %s %s", orderByColumn, orderByDirection)
 	limitStr := fmt.Sprintf("LIMIT %d", pageSize)
-	query := selectCols + strings.Join([]string{filterStr, orderByStr, limitStr}, " ")
+	query := selectCols + fromTables + strings.Join([]string{filterStr, orderByStr, limitStr}, " ")
 
 	rows, err = env.Db.Query(query, queryParams...)
 
@@ -174,7 +210,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
 			&deal.TotalPrice, &deal.Quantity, &deal.Benefits,
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
-			&deal.UpdatedAt, &deal.InactiveAt)
+			&deal.UpdatedAt, &deal.InactiveAt, &deal.Likes, &deal.Members)
 		if err != nil {
 			utils.WriteErrorJsonResponse(w, err.Error())
 			return

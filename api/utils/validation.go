@@ -30,3 +30,17 @@ func IsValidUsername(s string) error {
 	}
 	return nil
 }
+
+func IsValidOrderByColumn(s string) bool {
+	reqCols := []string{"posted_at", "total_price", "likes", "members"}
+	for _, reqCol := range reqCols {
+		if s == reqCol {
+			return true
+		}
+	}
+	return false
+}
+
+func IsValidOrderDirection(s string) bool {
+	return s == "DESC" || s == "ASC"
+}
