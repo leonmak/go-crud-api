@@ -34,7 +34,10 @@ type Deal struct {
 type DealCategory struct {
 	ID				uint 	`json:"id",db:"id"`
 	Name 			string 	`json:"name",db:"name"`
+	IconUrl 		*string `json:"iconUrl,omitEmpty",db:"icon_url"`
+	Priority 		uint 	`json:"priority",db:"priority"`
 	DisplayName 	string 	`json:"displayName",db:"display_name"`
+	IsActive	 	bool 	`json:"isActive",db:"is_active"`
 }
 
 type DealMembership struct {

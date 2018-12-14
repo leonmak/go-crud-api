@@ -236,10 +236,12 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 func getDealCategories(w http.ResponseWriter, r *http.Request) {
 	var categories []structs.DealCategory
 	var rows *sql.Rows
-	rows, err := env.Db.Query(`SELECT id, name, display_name from deal_categories`)
+	rows, err := env.Db.Query(`SELECT id, name, display_name, icon_url, priority, is_active from deal_categories`)
 	for rows.Next() {
 		var category structs.DealCategory
-		err = rows.Scan(&category.ID, &category.Name, &category.DisplayName)
+		err = rows.Scan(
+			&category.ID, &category.Name, &category.DisplayName, &category.IconUrl,
+			&category.Priority, &category.IsActive)
 		categories = append(categories, category)
 	}
 	if err != nil {

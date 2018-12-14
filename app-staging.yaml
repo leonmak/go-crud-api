@@ -2,4 +2,4 @@ runtime: go111
 env_variables:
   ENV: staging
 beta_settings:
-  cloud_sql_instances: /cloudsql/groupbuy-api-2018:us-central1:groupbuy-api-staging-pg96-usc1
+  cloud_sql_instances: /cloudsql/groupbuy-api-staging:asia-east2:groupbuy-api-staging-pg96

@@ -44,6 +44,9 @@ CREATE TABLE deal_categories
   id              smallserial primary key,
   name            text not null,
   display_name    text not null,
+  icon_url        text,
+  priority        int default 1, -- bigger is more important
+  is_active       boolean default true,
   CHECK (length(name) <= 42),
   CHECK (length(display_name) <= 42)
 );
