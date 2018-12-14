@@ -188,7 +188,7 @@ func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 func validateGoogleUserToken(email string, userToken string, r *http.Request) bool {
 	validateTokenLink := fmt.Sprintf(
 		"https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=%s", userToken)
-	resp, err := utils.GetAppEngine(r, validateTokenLink)
+	resp, err := http.Get(validateTokenLink)
 	if err != nil {
 		return false
 	}
@@ -234,7 +234,7 @@ func getFacebookAppToken(r *http.Request) (appToken string, err error) {
 	appLink := "https://graph.facebook.com/oauth/access_token?client_id=" + clientId +
 		"&client_secret=" + clientSecret + "&grant_type=client_credentials"
 
-	resp, err := utils.GetAppEngine(r, appLink)
+	resp, err := http.Get(appLink)
 	if err != nil {
 		return "", fmt.Errorf("could not get FB App Token")
 	}
@@ -248,7 +248,7 @@ func validateFacebookUserToken(r *http.Request, appToken string, userToken strin
 	// Checks user token is valid and user_id in response is same as given userId
 	validateTokenLink := "https://graph.facebook.com/debug_token?input_token="+ userToken +
 		"&access_token=" + appToken
-	resp, err := utils.GetAppEngine(r, validateTokenLink)
+	resp, err := http.Get(validateTokenLink)
 	if err != nil {
 		return false
 	}
