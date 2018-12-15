@@ -21,8 +21,8 @@ func getUserById(w http.ResponseWriter, r *http.Request) {
 	if err != nil || userId == "" {
 		w.WriteHeader(http.StatusBadRequest)
 	}
-	err = env.Db.QueryRow("SELECT image_url, display_name FROM users WHERE id=$1",
-		userId).Scan(&user.ImageURL, &user.DisplayName)
+	err = env.Db.QueryRow("SELECT image_url, display_name, country_code, reputation FROM users WHERE id=$1",
+		userId).Scan(&user.ImageURL, &user.DisplayName, &user.CountryCode, &user.Reputation)
 	if err != nil {
 		utils.WriteError(w, "user not found")
 	} else {
@@ -32,8 +32,8 @@ func getUserById(w http.ResponseWriter, r *http.Request) {
 }
 
 func getUserByEmail(email string) (user structs.User, err error){
-	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
-		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	err = env.Db.QueryRow("SELECT id, image_url, display_name, country_code, reputation FROM users WHERE email=$1",
+		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName, &user.CountryCode, &user.Reputation)
 	if err != nil {
 		return user, fmt.Errorf("user not found")
 	} else {
@@ -77,15 +77,20 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	creds.Email = strings.ToLower(creds.Email)
 	imageUrl := getGravatarUrl(creds.Email)
 	err = env.Db.QueryRow("INSERT INTO USERS " +
-		"(email, display_name, image_url, auth_type) " +
-		"VALUES ($1, $2, $3, $4) RETURNING id;",
-		creds.Email, creds.DisplayName, imageUrl, "email").Scan(&userId)
+		"(email, display_name, image_url, auth_type, country_code) " +
+		"VALUES ($1, $2, $3, $4, $5) RETURNING id;",
+		creds.Email, creds.DisplayName, imageUrl, "email", creds.CountryCode).Scan(&userId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		utils.WriteError(w, "user already exists")
 		return
 	}
-	user := structs.User{ID: userId, DisplayName: creds.DisplayName, ImageURL: &imageUrl}
+	user := structs.User{
+		ID: userId,
+		DisplayName: creds.DisplayName,
+		ImageURL: &imageUrl,
+		Reputation: 0,
+		CountryCode: creds.CountryCode}
 	respondUser(user, w)
 }
 
@@ -123,19 +128,17 @@ func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		utils.WriteError(w, "invalid token")
 	}
-	user := structs.User{}
-	err = env.Db.QueryRow("SELECT id, image_url, display_name FROM users WHERE email=$1",
-		email).Scan(&user.ID, &user.ImageURL, &user.DisplayName)
+	user, err := getUserByEmail(email)
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		utils.WriteError(w, "error logging in")
-		return
+		w.WriteHeader(http.StatusBadRequest)
+		utils.WriteError(w, "could not get user")
+	} else {
+		// Save authenticated session if successful
+		log.Printf("Login Successful")
+		w.WriteHeader(http.StatusOK)
+		saveSession(w, r)
+		respondUser(user, w)
 	}
-	// Save authenticated session if successful
-	log.Printf("Login Successful")
-	w.WriteHeader(http.StatusOK)
-	saveSession(w, r)
-	respondUser(user, w)
 }
 
 func writeRegisterJson(w http.ResponseWriter) {
@@ -264,9 +267,9 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(creds)
 
 	var id string
-	err = env.Db.QueryRow("INSERT INTO USERS (email, display_name, image_url, auth_type) " +
-		"VALUES ($1, $2, $3, $4) RETURNING id;",
-		creds.Email, creds.DisplayName, creds.ImageUrl, creds.AuthType).Scan(&id)
+	err = env.Db.QueryRow("INSERT INTO USERS (email, display_name, image_url, auth_type, country_code) " +
+		"VALUES ($1, $2, $3, $4, $5) RETURNING id;",
+		creds.Email, creds.DisplayName, creds.ImageUrl, creds.AuthType, creds.CountryCode).Scan(&id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		utils.WriteError(w, "could not retrieve user")

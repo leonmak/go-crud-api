@@ -176,11 +176,9 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	// In profile, get deals by those joined:
 	// - Join tables on member id
 	memberId := values.Get("memberId")
-	if memberId != "" {
+	if memberId != "" && utils.IsValidUUID(memberId) {
 		fromTables += " LEFT JOIN deal_memberships d_m ON d.id=d_m.deal_id"
-		colCount++
-		filterStrings = append(filterStrings, fmt.Sprintf("d_m.user_id=$%d", colCount))
-		queryParams = append(queryParams, memberId)
+		filterStrings = append(filterStrings, fmt.Sprintf("d_m.user_id='%s'", memberId))
 	}
 
 	var deals []structs.Deal

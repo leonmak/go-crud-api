@@ -12,7 +12,6 @@ CREATE TABLE users
   image_url             text,
   country_code          char(2),
   reputation            int default 0,
-  featured_posts        int default 0,
   auth_type             text,
   created_at            timestamp default timezone('utc', now()),
   CHECK (length(display_name) <= 42),
