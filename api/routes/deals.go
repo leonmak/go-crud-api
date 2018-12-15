@@ -97,14 +97,14 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 			utils.WriteErrorJsonResponse(w, "invalid poster id")
 			return
 		}
-		posterIdFilter := fmt.Sprintf("poster_id = $%s ", posterId)
+		posterIdFilter := fmt.Sprintf("d.poster_id = '%s' ", posterId)
 		filterStrings = append(filterStrings, posterIdFilter)
 	}
 
 	// Category filter
 	categoryId, err := strconv.Atoi(values.Get("categoryId"))
 	if err == nil {
-		categoryFilter := fmt.Sprintf("category_id = %d", categoryId)
+		categoryFilter := fmt.Sprintf("d.category_id = %d", categoryId)
 		filterStrings = append(filterStrings, categoryFilter)
 	}
 
@@ -147,12 +147,13 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		filterStrings = append(filterStrings, distanceFilter)
 	}
 
-	// Inactive filter
-	showInactive, err := strconv.ParseBool(values.Get("showInactive"))
-	if err == nil && showInactive {
-		hideInactiveStr := "inactive_at IS NOT NULL"
-		filterStrings = append(filterStrings, hideInactiveStr)
+	// Inactive filter (hidden by default)
+	showDeleted, err := strconv.ParseBool(values.Get("showDeleted"))
+	showDeletedStr := "NULL"
+	if err == nil && showDeleted {
+		showDeletedStr = "NOT NULL"
 	}
+	filterStrings = append(filterStrings, fmt.Sprintf("inactive_at IS %s", showDeletedStr))
 
 	// Featured filter
 	isFeatured, err := strconv.ParseBool(values.Get("isFeatured"))
@@ -166,7 +167,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		d.latitude, d.longitude, d.location_text, 
 		d.total_price, d.quantity, d.benefits,
 		d.category_id, d.poster_id, d.posted_at, 
-		d.updated_at, d.inactive_at, 
+		d.updated_at, d.inactive_at,  d.featured_url,
 		(SELECT COUNT(CASE WHEN d_l.is_upvote THEN 1 END) FROM deal_likes d_l WHERE d.id=d_l.deal_id) as likes,
 		(SELECT COUNT(*) FROM deal_memberships d_m WHERE d.id=d_m.deal_id) as members
 	`
@@ -210,7 +211,8 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 			&deal.Latitude, &deal.Longitude, &deal.LocationText,
 			&deal.TotalPrice, &deal.Quantity, &deal.Benefits,
 			&deal.CategoryID, &deal.PosterID, &deal.PostedAt,
-			&deal.UpdatedAt, &deal.InactiveAt, &deal.Likes, &deal.Members)
+			&deal.UpdatedAt, &deal.InactiveAt, &deal.FeaturedUrl,
+			&deal.Likes, &deal.Members)
 		if err != nil {
 			utils.WriteErrorJsonResponse(w, err.Error())
 			return
@@ -570,6 +572,7 @@ func SetInactiveDeal(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
 	}
+	utils.WriteSuccessJsonResponse(w, fmt.Sprintf("deal %s removed", dealId))
 }
 
 func getDealMembershipByUserIdDealId(w http.ResponseWriter, r *http.Request) {
