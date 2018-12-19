@@ -611,7 +611,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 			utils.WriteErrorJsonResponse(w, "Wrong time")
 			return
 		}
-		rows, err = env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at
+		rows, err = env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at, u.fir_id
 		FROM users u INNER JOIN deal_memberships m 
 		ON u.id = m.user_id 
 		WHERE m.deal_id = $1 AND m.joined_at > $2
@@ -619,7 +619,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 		LIMIT $3;
 		`, dealId, baseT, limitI)
 	} else {
-		rows, err = env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at
+		rows, err = env.Db.Query(`SELECT u.id, u.display_name, u.image_url, joined_at, u.fir_id
 		FROM users u INNER JOIN deal_memberships m 
 		ON u.id = m.user_id 
 		WHERE m.deal_id = $1 
@@ -630,7 +630,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var member structs.DealMembership
-		rows.Scan(&member.User.ID, &member.User.DisplayName, &member.User.ImageURL, &member.JoinedAt)
+		rows.Scan(&member.User.ID, &member.User.DisplayName, &member.User.ImageURL, &member.JoinedAt, &member.User.FIRID)
 		dealMembers = append(dealMembers, member)
 	}
 	membersBytes, err := json.Marshal(dealMembers)
@@ -836,15 +836,17 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 	var dealComments []structs.DealComment
-	rows, err := env.Db.Query(`SELECT d.id, d.deal_id, d.user_id, u.display_name, d.comment_str, d.posted_at 
- 			FROM deal_comments d
- 			INNER JOIN users u ON u.id = d.user_id 
-			WHERE removed_at ISNULL AND deal_id = $1`, dealId)
+	rows, err := env.Db.Query(
+		`SELECT d.user_id, u.fir_id, u.display_name, d.comment_str, d.posted_at 
+ 		FROM deal_comments d
+ 		INNER JOIN users u ON u.id = d.user_id 
+		WHERE removed_at ISNULL AND deal_id = $1`,
+		dealId)
 	defer rows.Close()
 	for rows.Next() {
 		var dealComment structs.DealComment
-		err = rows.Scan(&dealComment.ID, &dealComment.DealID, &dealComment.UserID, &dealComment.Username,
-			&dealComment.Comment, &dealComment.PostedAt)
+		err = rows.Scan(&dealComment.UserID, &dealComment.UserFIRID,
+			&dealComment.Username, &dealComment.Comment, &dealComment.PostedAt)
 		dealComments = append(dealComments, dealComment)
 	}
 	dealCommentBytes, err := json.Marshal(dealComments)

@@ -49,6 +49,7 @@ func InitRouter() {
 
 	// User
 	// TODO: Get another user's profile stats
+	api.HandleFunc("/user", updateUser).Methods(http.MethodPut)
 	api.HandleFunc("/user/{userId}", getUserById).Methods(http.MethodGet)
 	api.HandleFunc("/register/email", registerEmailUser).Methods(http.MethodPost)
 	api.HandleFunc("/register/social_media", registerBySocialMedia).Methods(http.MethodPost)
@@ -56,7 +57,6 @@ func InitRouter() {
 	api.HandleFunc("/login/facebook", loginFacebookUser).Methods(http.MethodPost)
 	api.HandleFunc("/login/google", loginGoogleUser).Methods(http.MethodPost)
 	api.HandleFunc("/logout", middleware.Use(logoutUser, auth)).Methods(http.MethodPost)
-
 	if appengine.IsAppEngine() {
 		http.Handle("/", router)
 		appengine.Main()

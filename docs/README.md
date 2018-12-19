@@ -61,13 +61,13 @@ dep ensure
 ### Cloud SQL
 ```bash
 # - Create database: 
-DATABASE_NAME=groupbuy
-INSTANCE_NAME=groupbuy-api-staging-pg96
-BUCKET_NAME=groupbuy-api-staging
+INSTANCE_NAME=dealbasin-api-prod-pg96
+BUCKET_NAME=dealbasin-api-prod-bucket
+DATABASE_NAME=dealbasin
 REGION=asia-east2
 gcloud sql instances create ${INSTANCE_NAME} --region=${REGION} --database-version=POSTGRES_9_6 --tier=db-f1-micro
 gcloud sql databases create ${DATABASE_NAME} --instance ${INSTANCE_NAME}
-# gcloud sql users create username123 --instance=${INSTANCE_NAME} --password=password123
+# gcloud sql users create user123 --instance=${INSTANCE_NAME} --password=pw123
  
 # - Create GCS bucket to store sql files:
 #gsutil -m rm -r gs://${BUCKET_NAME}    
@@ -83,6 +83,11 @@ for i in `ls sql/common`; do
 done
 ```
 
+### Deploy to App Engine
+```bash
+gcloud app deploy app-prod.yaml
+gcloud app deploy app-staging.yaml
+```
 
 ## Routes:
 - `/deals`

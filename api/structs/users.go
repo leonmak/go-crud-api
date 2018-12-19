@@ -6,11 +6,14 @@ type User struct {
 	DisplayName 	string		`json:"displayName",db:"display_name"`
 	ImageURL		*string 	`json:"imageUrl,omitempty",db:"image_url"`
 	CountryCode		string 		`json:"countryCode",db:"country_code"`
-	Reputation		int	 		`json:"reputation",db:"reputation"`
+	AuthType		*string 	`json:"authType,omitEmpty",db:"auth_type"`
+	Email			*string 	`json:"email,omitEmpty",db:"email"`
+	FIRID			string		`json:"firId",db:"fir_id"`
 }
 
 // Temp struct For marshalling login / register requests
 type UserCredentials struct {
+	FIRID		string	`json:"firId"`
 	Email 		string	`json:"email"`
 	Token		string 	`json:"token"`
 	DisplayName string	`json:"displayName"`
@@ -18,6 +21,7 @@ type UserCredentials struct {
 }
 
 type UserCredentialSocialMedia struct {
+	FIRID 		string	`json:"firId"`
 	Email 		string	`json:"email"`
 	DisplayName string	`json:"displayName"`
 	ImageUrl 	string  `json:"imageUrl"`

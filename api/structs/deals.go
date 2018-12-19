@@ -70,4 +70,5 @@ type DealComment struct {
 	UserID		string 		`json:"userId",db:"user_id"`
 	Comment		string		`json:"comment",db:"comment"`
 	PostedAt	time.Time	`json:"postedAt",db:"posted_at"`
+	UserFIRID	*string 	`json:"userFirId,omitEmpty"`
 }

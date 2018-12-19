@@ -32,12 +32,16 @@ func InitEnv() {
 
 func initConfig() {
 	var err error
-	configFolder := "config/"
-	Conf, err = getConfiguration(configFolder, os.Getenv("ENV"))
+	configFolder := "config"
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "dev"
+	}
+	Conf, err = getConfiguration(configFolder, env)
 	if err != nil {
 		log.Fatal(err)
 	}
-	initFirebase(configFolder)
+	initFirebase(configFolder, env)
 }
 
 func initDB() {
@@ -74,8 +78,8 @@ func getConfiguration(configFolder string, envType string) (*structs.Config, err
 }
 
 
-func initFirebase(configFolder string) {
-	opt := option.WithCredentialsFile(fmt.Sprintf("%s/serviceAccountKey.json", configFolder))
+func initFirebase(configFolder string, env string) {
+	opt := option.WithCredentialsFile(fmt.Sprintf("%s/%s-serviceAccountKey.json", configFolder, env))
 	var err error
 	Firebase, err = firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {

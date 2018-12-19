@@ -2,6 +2,15 @@ BEGIN;
 
 DO $$
 DECLARE
+  vUserId uuid := 'eab30e15-fded-46fc-93f4-af0cb2a0ebd8';
+BEGIN
+  INSERT INTO users (id, email, display_name, country_code)
+  VALUES (vUserId, 'leon.mak@u.nus.edu', 'leon', 'US');
+END
+$$;
+
+DO $$
+DECLARE
   vDealId uuid := 'f3c80460-de56-42c4-855f-82dda631fee1';
   vDealId2 uuid := 'f3c80460-de56-42c4-855f-82dda631fee2';
   vThumbId uuid := '93dda1a7-67a4-4e81-abcf-f3a2aba687f4';
