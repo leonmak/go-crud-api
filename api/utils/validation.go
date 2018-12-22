@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"groupbuying.online/api/env"
 	"log"
 	"net/http"
 	"unicode"
@@ -43,4 +44,19 @@ func IsValidOrderByColumn(s string) bool {
 
 func IsValidOrderDirection(s string) bool {
 	return s == "DESC" || s == "ASC"
+}
+
+func GetUserIdInSession(r *http.Request) (string, bool) {
+	session, _ := env.Store.Get(r, env.Conf.SessionName)
+	userId, ok := session.Values["userId"].(string)
+	return userId, ok
+}
+
+func checkUserId(r *http.Request, w http.ResponseWriter, ownerId string)  {
+	userId, ok := GetUserIdInSession(r)
+	if ok && userId == ownerId {
+		return
+	}
+	http.Error(w, "Forbidden", http.StatusForbidden)
+	log.Fatalf("Not authenticated")
 }

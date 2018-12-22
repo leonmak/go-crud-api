@@ -2,3 +2,5 @@
 .git/
 sql
 docs
+
+vendor/

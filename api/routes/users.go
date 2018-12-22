@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/asaskevich/govalidator"
-	"google.golang.org/appengine"
 	"groupbuying.online/api/env"
 	"groupbuying.online/api/structs"
 	"groupbuying.online/api/utils"
@@ -49,6 +48,7 @@ func getUserByEmail(email string) (user structs.User, err error) {
 func logoutUser(w http.ResponseWriter, r *http.Request) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	session.Values["authenticated"] = false
+	delete(session.Values, "userId")
 	session.Save(r, w)
 }
 
@@ -67,7 +67,7 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, err.Error())
 		return
 	}
-	err = verifyToken(creds.Token, r)
+	err = verifyToken(creds.Token)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		utils.WriteError(w, "invalid token")
@@ -95,11 +95,8 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	respondUser(user, w)
 }
 
-func verifyToken(idToken string, r *http.Request) error {
+func verifyToken(idToken string) error {
 	ctx := context.Background()
-	if appengine.IsAppEngine() {
-		ctx = appengine.NewContext(r)
-	}
 	client, err := env.Firebase.Auth(ctx)
 	if err != nil {
 		log.Fatalf("error getting Auth client: %v\n", err)
@@ -124,7 +121,7 @@ func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 		utils.WriteError(w, "invalid input")
 		return
 	}
-	err = verifyToken(token, r)
+	err = verifyToken(token)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		utils.WriteError(w, "invalid token")
@@ -137,7 +134,7 @@ func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 		// Save authenticated session if successful
 		log.Printf("Login Successful")
 		w.WriteHeader(http.StatusOK)
-		saveSession(w, r)
+		saveSession(user, w, r)
 		respondUser(user, w)
 	}
 }
@@ -153,10 +150,14 @@ func readSocialCredentials(r *http.Request) (*structs.SocialSignInCredentials, e
 	return creds, err
 }
 
-func saveSession(w http.ResponseWriter, r *http.Request) {
+func saveSession(user structs.User, w http.ResponseWriter, r *http.Request) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	session.Values["authenticated"] = true
-	session.Save(r, w)
+	session.Values["userId"] = user.ID
+	err := session.Save(r, w)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 }
 
 func respondUser(user structs.User, w http.ResponseWriter) {
@@ -182,7 +183,7 @@ func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := getUserByEmail(creds.Email)
 	if err == nil {
-		saveSession(w, r)
+		saveSession(user, w, r)
 		respondUser(user, w)
 	} else {
 		writeRegisterJson(w)
@@ -225,7 +226,7 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := getUserByEmail(creds.Email)
 	if err == nil {
-		saveSession(w, r)
+		saveSession(user, w, r)
 		respondUser(user, w)
 	} else {
 		writeRegisterJson(w)
@@ -263,7 +264,6 @@ func validateFacebookUserToken(appToken string, userToken string, userId string)
 }
 
 func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
-	//(email string, displayName string)
 	creds := &structs.UserCredentialSocialMedia{}
 	err := json.NewDecoder(r.Body).Decode(creds)
 
@@ -285,7 +285,7 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 		Email: &creds.Email,
 		FIRID: creds.FIRID,
 	}
-	saveSession(w, r)
+	saveSession(user, w, r)
 	respondUser(user, w)
 }
 

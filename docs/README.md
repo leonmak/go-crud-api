@@ -70,7 +70,7 @@ gcloud sql databases create ${DATABASE_NAME} --instance ${INSTANCE_NAME}
 # gcloud sql users create user123 --instance=${INSTANCE_NAME} --password=pw123
  
 # - Create GCS bucket to store sql files:
-#gsutil -m rm -r gs://${BUCKET_NAME}    
+gsutil -m rm -r gs://${BUCKET_NAME}    
 gsutil mb gs://${BUCKET_NAME}    
 gsutil -m cp -r ./sql/ gs://${BUCKET_NAME}/
 SVC_ACCOUNT_ADDRESS=`gcloud sql instances describe ${INSTANCE_NAME} | grep service | sed -e 's/.*: //'`
@@ -82,6 +82,12 @@ for i in `ls sql/common`; do
     gcloud sql import sql ${INSTANCE_NAME} gs://${BUCKET_NAME}/sql/common/${i} --database=${DATABASE_NAME}
 done
 ```
+
+### Setup firebase
+- Enable email, fb, google sign in
+- Create a database if not already created
+- Download Service Account Key json under `Settings` > `Service Accounts` and rename to `[ENV]-serviceAccountKey.json`
+- Edit Rules
 
 ### Deploy to App Engine
 ```bash
