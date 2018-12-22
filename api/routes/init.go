@@ -47,6 +47,9 @@ func InitRouter() {
 	// Featured Banner Content
 	api.HandleFunc("/suggestions", getSuggestions).Methods(http.MethodGet)
 
+	// Chat notification
+	api.HandleFunc("/push/new_chat", middleware.Use(pushNewChatNotification, auth)).Methods(http.MethodPost)
+
 	// User
 	// TODO: Get another user's profile stats
 	api.HandleFunc("/user", updateUser).Methods(http.MethodPut)
@@ -62,7 +65,7 @@ func InitRouter() {
 		appengine.Main()
 	} else {
 		fmt.Printf("listening on %d\n", env.Conf.Port)
-		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", env.Conf.Port), api))
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", env.Conf.Port), router))
 	}
 }
 

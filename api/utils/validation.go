@@ -52,9 +52,9 @@ func GetUserIdInSession(r *http.Request) (string, bool) {
 	return userId, ok
 }
 
-func checkUserId(r *http.Request, w http.ResponseWriter, ownerId string)  {
+func checkUserId(r *http.Request, w http.ResponseWriter, userId string)  {
 	userId, ok := GetUserIdInSession(r)
-	if ok && userId == ownerId {
+	if ok && userId == userId {
 		return
 	}
 	http.Error(w, "Forbidden", http.StatusForbidden)
