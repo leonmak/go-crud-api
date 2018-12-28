@@ -36,13 +36,14 @@ dep ensure
     - Change env variable `export ENV=dev-cloudql`
 
 ### Staging
-- In `config/staging.json`, `"dbHostName":"/cloudsql/groupbuy-api-2018:asia-southeast1:groupbuy-api-staging"`
+- In `config/staging.json`, `"dbHostName":"/cloudsql/dealbasin-api-staging:asia-east2:dealbasin-api-staging-pg96"`
 - In `app.yaml`
     ```yaml
+    env_variables:
+      ENV: staging
     beta_settings:
-      cloud_sql_instances: groupbuy-api-2018:asia-southeast1:groupbuy-api-staging
+      cloud_sql_instances: /cloudsql/dealbasin-api-staging:asia-east2:dealbasin-api-staging-pg96
     ```
-
 
 ## Database setup
 
@@ -61,12 +62,15 @@ dep ensure
 ### Cloud SQL
 ```bash
 # - Create database: 
-INSTANCE_NAME=dealbasin-api-prod-pg96
-BUCKET_NAME=dealbasin-api-prod-bucket
+ENV=staging
+INSTANCE_NAME=dealbasin-api-${ENV}-pg96
+BUCKET_NAME=dealbasin-api-${ENV}-bucket
 DATABASE_NAME=dealbasin
 REGION=asia-east2
 gcloud sql instances create ${INSTANCE_NAME} --region=${REGION} --database-version=POSTGRES_9_6 --tier=db-f1-micro
 gcloud sql databases create ${DATABASE_NAME} --instance ${INSTANCE_NAME}
+
+# Edit "dbUsername", "dbPassword" in `config/${ENV}.json`
 # gcloud sql users create user123 --instance=${INSTANCE_NAME} --password=pw123
  
 # - Create GCS bucket to store sql files:
@@ -87,50 +91,10 @@ done
 - Enable email, fb, google sign in
 - Create a database if not already created
 - Download Service Account Key json under `Settings` > `Service Accounts` and rename to `[ENV]-serviceAccountKey.json`
-- Edit Rules
+- Edit Rules, see `firebase-database-rules.md`
 
 ### Deploy to App Engine
 ```bash
 gcloud app deploy app-prod.yaml
 gcloud app deploy app-staging.yaml
 ```
-
-## Routes:
-- `/deals`
-    - GET
-        - `search_text`
-            - `string`, fuzzy text search on `title` column
-        - `city_id`
-            - `serial`, reference cities(id)
-        - `poster_id` (optional)
-            - `string`
-        - `category_id` (optional)
-            - `serial`
-        - `after`, `before` (optional)
-            - `string` iso8601 format, e.g. `2011-10-05T14:48:00.000Z`
-            - for paginating - after most recent, and before least recent item 
-            - must use both `after` & `before` if used  
-        - `show_inactive` (optional)
-            - `bool`, e.g. `true`(show all) / `false` (default, show `inactive_at` is null)
-        - `lat`, `lng` (optional)
-            - `float64`, up to 64 digits, e.g. `1.3521`
-            - requires `radius_km`
-        - `radius_km` (optional)
-            - `int`
-            - requires `lat` & `lng`
-- `/deal`
-    - POST
-        - accepts JSON payload with keys: 
-        `title`,`description`,`thumbnailId`,`latitude`,`longitude`,`locationText`,
-        `expectedPrice`,`categoryId`,`posterId`,`cityId`
-        - returns uuid string on successful
-- `/deal/{id}`
-    - GET
-    - PUT
-    - DELETE
-
-- `/deal/{id}/members`
-- `/deal/{id}/comments`
-- `/deal/{id}/images`
-- `/categories/` 
-- `/user/{id}`
