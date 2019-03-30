@@ -23,32 +23,29 @@ func InitRouter() {
 	api.HandleFunc("/deals", middleware.Use(postDeal, auth)).Methods(http.MethodPost)
 	api.HandleFunc("/deals/categories", getDealCategories).Methods(http.MethodGet)
 
-	api.HandleFunc("/deal/{dealId}",
-		middleware.Use(handleDeal, auth)).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
+	api.HandleFunc("/deal/{dealId}", middleware.Use(handleDeal, auth)).Methods(http.MethodGet, http.MethodPut, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/memberships", getDealMembersByDealId).Methods(http.MethodGet)
 	api.HandleFunc("/deal/{dealId}/membership/{userId}", getDealMembershipByUserIdDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal_membership",
-		middleware.Use(handleDealMembership, auth)).Methods(http.MethodPost, http.MethodDelete)
+	api.HandleFunc("/deal_membership", middleware.Use(handleDealMembership, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/likes", getDealLikeSummaryByDealId).Methods(http.MethodGet)
 	api.HandleFunc("/deal/{dealId}/like/{userId}", getDealLikeByUserId).Methods(http.MethodGet)
-	api.HandleFunc("/deal_like",
-		middleware.Use(handleDealLike, auth)).Methods(http.MethodPost, http.MethodDelete)
+	api.HandleFunc("/deal_like", middleware.Use(handleDealLike, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/images", getDealImageUrlsByDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal_image",
-		middleware.Use(handleDealImage, auth)).Methods(http.MethodPost, http.MethodDelete)
+	api.HandleFunc("/deal_image", middleware.Use(handleDealImage, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	api.HandleFunc("/deal/{dealId}/comments", getDealCommentsByDealId).Methods(http.MethodGet)
-	api.HandleFunc("/deal_comment",
-		middleware.Use(handleDealComment, auth)).Methods(http.MethodPost, http.MethodPut, http.MethodDelete)
+	api.HandleFunc("/deal_comment", middleware.Use(handleDealComment, auth)).Methods(http.MethodPost, http.MethodPut, http.MethodDelete)
+
+	api.HandleFunc("/deal_hidden", middleware.Use(hideDeal, auth)).Methods(http.MethodPost, http.MethodDelete)
 
 	// Featured Banner Content
 	api.HandleFunc("/suggestions", getSuggestions).Methods(http.MethodGet)
 
 	// Chat notification
-	api.HandleFunc("/push/new_chat", middleware.Use(pushNewChatNotification, auth)).Methods(http.MethodPost)
+	api.HandleFunc("/chat_notification", middleware.Use(pushNewChatNotification, auth)).Methods(http.MethodPost)
 
 	// User
 	// TODO: Get another user's profile stats
@@ -59,7 +56,12 @@ func InitRouter() {
 	api.HandleFunc("/login/email", loginEmailUser).Methods(http.MethodPost)
 	api.HandleFunc("/login/facebook", loginFacebookUser).Methods(http.MethodPost)
 	api.HandleFunc("/login/google", loginGoogleUser).Methods(http.MethodPost)
-	api.HandleFunc("/logout", middleware.Use(logoutUser, auth)).Methods(http.MethodPost)
+	api.HandleFunc("/logout", logoutUser).Methods(http.MethodPost)
+
+	api.HandleFunc("/user_blocked", middleware.Use(blockUser, auth)).Methods(http.MethodPost, http.MethodDelete)
+	api.HandleFunc("/user_reported", middleware.Use(reportUser, auth)).Methods(http.MethodPost)
+	api.HandleFunc("/user_banned", middleware.Use(isUserBanned, auth)).Methods(http.MethodPost)
+
 	if appengine.IsAppEngine() {
 		http.Handle("/", router)
 		appengine.Main()

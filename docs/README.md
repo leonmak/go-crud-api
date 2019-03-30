@@ -17,18 +17,18 @@ dep ensure
     { 
       "dbHostName": "localhost",
       "dbPortName": "5432",
-      "dbSourceName": "groupbuy"
+      "dbSourceName": "dealbasin"
     }
     ```
 - Cloud SQL using proxy:
     - Download proxy: `curl -o cloud_sql_proxy https://dl.google.com/cloudsql/cloud_sql_proxy.darwin.amd64` 
-    - Run proxy: `./cloud_sql_proxy -instances="groupbuy-api-2018:asia-southeast1:groupbuy-api-staging"=tcp:5432`
+    - Run proxy: `./cloud_sql_proxy -instances="dealbasin-api-2018:asia-southeast1:dealbasin-api-staging"=tcp:5432`
     - Setup database as below and fill in user & password info in `dev-cloudql.json`
     ```json
         { 
           "dbHostName": "localhost",
           "dbPortName": "5432",
-          "dbSourceName": "groupbuy",
+          "dbSourceName": "dealbasin",
           "dbUsername": "edit from settings",
           "dbPassword": "edit from settings"
         }
@@ -48,14 +48,14 @@ dep ensure
 ## Database setup
 
 ### Local
-- Create database: `createdb -h localhost -p 5432 -U postgres groupbuy`
-- Create tables: `psql -h localhost -d groupbuy -p 5432 -f ./sql/common/file.sql`
+- Create database: `createdb -h localhost -p 5432 -U postgres dealbasin`
+- Create tables: `psql -h localhost -d dealbasin -p 5432 -f ./sql/common/file.sql`
     ```bash
     for i in `ls sql/common`; do
-        psql -h localhost -d groupbuy -p 5432 -f ./sql/common/$i
+        psql -h localhost -d dealbasin -p 5432 -f ./sql/common/$i
     done
     for i in `ls sql/data`; do
-      psql -h localhost -d groupbuy -p 5432 -f ./sql/data/$i
+      psql -h localhost -d dealbasin -p 5432 -f ./sql/data/$i
     done
     ```
    

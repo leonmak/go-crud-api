@@ -49,14 +49,8 @@ func IsValidOrderDirection(s string) bool {
 func GetUserIdInSession(r *http.Request) (string, bool) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	userId, ok := session.Values["userId"].(string)
-	return userId, ok
-}
-
-func checkUserId(r *http.Request, w http.ResponseWriter, userId string)  {
-	userId, ok := GetUserIdInSession(r)
-	if ok && userId == userId {
-		return
+	if !IsValidUUID(userId) {
+		return "", false
 	}
-	http.Error(w, "Forbidden", http.StatusForbidden)
-	log.Fatalf("Not authenticated")
+	return userId, ok
 }

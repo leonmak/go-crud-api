@@ -2,15 +2,16 @@ package routes
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/asaskevich/govalidator"
 	"groupbuying.online/api/env"
 	"groupbuying.online/api/structs"
 	"groupbuying.online/api/utils"
-	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Used when getting other users, response does not contain auth info
@@ -24,16 +25,21 @@ func getUserById(w http.ResponseWriter, r *http.Request) {
 		userId).Scan(&user.ImageURL, &user.DisplayName, &user.CountryCode, &user.FIRID)
 	if err != nil {
 		utils.WriteError(w, "user not found")
-	} else {
-		userBytes, _ := json.Marshal(user)
-		w.Write(userBytes)
+		return
 	}
+	userBytes, err := json.Marshal(user)
+	utils.CheckFatalError(w, err)
+	_, err = w.Write(userBytes)
+	utils.CheckFatalError(w, err)
 }
 
 // Used by login methods, response includes auth info
 func getUserByEmail(email string) (user structs.User, err error) {
 	err = env.Db.QueryRow("SELECT id, image_url, display_name, " +
-		"country_code, auth_type, email, fir_id FROM users WHERE email=$1",
+		"country_code, auth_type, email, fir_id " +
+		"FROM users u " +
+		"WHERE email=$1 " +
+		"AND NOT EXISTS (SELECT user_id FROM users_banned u_b WHERE u_b.user_id=u.id)",
 		email).Scan(
 			&user.ID, &user.ImageURL, &user.DisplayName,
 			&user.CountryCode, &user.AuthType, &user.Email, &user.FIRID)
@@ -49,7 +55,9 @@ func logoutUser(w http.ResponseWriter, r *http.Request) {
 	session, _ := env.Store.Get(r, env.Conf.SessionName)
 	session.Values["authenticated"] = false
 	delete(session.Values, "userId")
-	session.Save(r, w)
+	err := session.Save(r, w)
+	utils.CheckFatalError(w, err)
+	utils.WriteSuccessJsonResponse(w, "")
 }
 
 // Insert a new user with unverified email
@@ -57,33 +65,22 @@ func registerEmailUser(w http.ResponseWriter, r *http.Request) {
 	creds := &structs.UserCredentials{}
 	authType := "email"
 	err := json.NewDecoder(r.Body).Decode(creds)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		utils.WriteError(w, "invalid input")
-		return
-	}
-	if err = utils.IsValidUsername(creds.DisplayName); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		utils.WriteError(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
+
+	err = utils.IsValidUsername(creds.DisplayName)
+	utils.CheckFatalError(w, err)
+
 	err = verifyToken(creds.Token)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		utils.WriteError(w, "invalid token")
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	var userId string
 	creds.Email = strings.ToLower(creds.Email)
 	err = env.Db.QueryRow("INSERT INTO USERS " +
 		"(email, display_name, auth_type, country_code, fir_id) " +
 		"VALUES ($1, $2, $3, $4, $5) RETURNING id;",
 		creds.Email, creds.DisplayName, authType, creds.CountryCode, creds.FIRID).Scan(&userId)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		utils.WriteError(w, "user already exists")
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	user := structs.User{
 		ID: userId,
 		DisplayName: creds.DisplayName,
@@ -99,21 +96,20 @@ func verifyToken(idToken string) error {
 	ctx := context.Background()
 	client, err := env.Firebase.Auth(ctx)
 	if err != nil {
-		log.Fatalf("error getting Auth client: %v\n", err)
+		return err
 	}
+
 	_, err = client.VerifyIDToken(ctx, idToken)
 	if err != nil {
-		log.Fatalf("error verifying ID token: %v\n", err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	email := result["email"].(string)
 	token := result["token"].(string)
 	if email == "" || token == "" {
@@ -122,24 +118,17 @@ func loginEmailUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err = verifyToken(token)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		utils.WriteError(w, "invalid token")
-	}
+	utils.CheckFatalError(w, err)
+
 	user, err := getUserByEmail(email)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		utils.WriteError(w, "could not get user")
-	} else {
-		// Save authenticated session if successful
-		log.Printf("Login Successful")
-		w.WriteHeader(http.StatusOK)
-		saveSession(user, w, r)
-		respondUser(user, w)
-	}
+	utils.CheckFatalError(w, err)
+
+	// Save authenticated session if successful
+	saveSession(user, w, r)
+	respondUser(user, w)
 }
 
-func writeRegisterJson(w http.ResponseWriter) {
+func writeToRegisterJson(w http.ResponseWriter) {
 	utils.WriteJsonResponse(w, "to_register", true)
 }
 
@@ -155,9 +144,7 @@ func saveSession(user structs.User, w http.ResponseWriter, r *http.Request) {
 	session.Values["authenticated"] = true
 	session.Values["userId"] = user.ID
 	err := session.Save(r, w)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
+	utils.CheckFatalError(w, err)
 }
 
 func respondUser(user structs.User, w http.ResponseWriter) {
@@ -165,18 +152,17 @@ func respondUser(user structs.User, w http.ResponseWriter) {
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
-		w.Write(b)
+		_, err = w.Write(b)
 	}
+	utils.CheckFatalError(w, err)
 }
 
 // Google Auth
 func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 	creds, err := readSocialCredentials(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	isValid := validateGoogleUserToken(creds.Email, creds.UserToken, r)
+	utils.CheckFatalError(w, err)
+
+	isValid := validateGoogleUserToken(creds.Email, creds.UserToken)
 	if !isValid {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -186,23 +172,23 @@ func loginGoogleUser(w http.ResponseWriter, r *http.Request) {
 		saveSession(user, w, r)
 		respondUser(user, w)
 	} else {
-		writeRegisterJson(w)
+		writeToRegisterJson(w)
 	}
 }
 
-func validateGoogleUserToken(email string, userToken string, r *http.Request) bool {
+// Check if token's email matches token supplied
+func validateGoogleUserToken(email string, userToken string) bool {
 	validateTokenLink := fmt.Sprintf(
 		"https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=%s", userToken)
 	resp, err := http.Get(validateTokenLink)
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	jsonResp := utils.ReadResponseToJson(resp)
+	utils.CloseResponse(resp)
+	jsonResp, err := utils.ReadResponseToJson(resp)
 	isValid := jsonResp["email"].(string) == email
 	return isValid
 }
-
 
 // Facebook Auth
 func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
@@ -210,15 +196,11 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 	// and returns {"to_register": true} if valid but not registered
 	// or user object if valid and registered.
 	creds, err := readSocialCredentials(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	appToken, err := getFacebookAppToken()
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	isValid := validateFacebookUserToken(appToken, creds.UserToken, creds.UserID)
 	if !isValid {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -229,7 +211,7 @@ func loginFacebookUser(w http.ResponseWriter, r *http.Request) {
 		saveSession(user, w, r)
 		respondUser(user, w)
 	} else {
-		writeRegisterJson(w)
+		writeToRegisterJson(w)
 	}
 }
 
@@ -243,8 +225,8 @@ func getFacebookAppToken() (appToken string, err error) {
 	if err != nil {
 		return "", fmt.Errorf("could not get FB App Token")
 	}
-	defer resp.Body.Close()
-	jsonResp := utils.ReadResponseToJson(resp)
+	utils.CloseResponse(resp)
+	jsonResp, err := utils.ReadResponseToJson(resp)
 	appToken = jsonResp["access_token"].(string)
 	return appToken, nil
 }
@@ -257,9 +239,10 @@ func validateFacebookUserToken(appToken string, userToken string, userId string)
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	jsonResp := utils.ReadResponseToJson(resp)["data"].(utils.UnstructuredJSON)
-	isValid := jsonResp["is_valid"].(bool) && jsonResp["user_id"].(string) == userId
+	utils.CloseResponse(resp)
+	jsonResp, err := utils.ReadResponseToJson(resp)
+	jsonRespData := jsonResp["data"].(utils.UnstructuredJSON)
+	isValid := jsonRespData["is_valid"].(bool) && jsonRespData["user_id"].(string) == userId
 	return isValid
 }
 
@@ -271,11 +254,8 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 	err = env.Db.QueryRow("INSERT INTO users (email, display_name, image_url, auth_type, country_code, fir_id)" +
 		" VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;",
 		creds.Email, creds.DisplayName, creds.ImageUrl, creds.AuthType, creds.CountryCode, creds.FIRID).Scan(&id)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		utils.WriteError(w, "could not retrieve user")
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	user := structs.User{
 		ID: id,
 		ImageURL: &creds.ImageUrl,
@@ -291,10 +271,8 @@ func registerBySocialMedia(w http.ResponseWriter, r *http.Request) {
 
 func updateUser(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
+	utils.CheckFatalError(w, err)
+
 	displayName := result["displayName"].(string)
 	countryCode := result["countryCode"].(string)
 	imageUrl := result["imageUrl"].(string)
@@ -319,9 +297,78 @@ func updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	query += fmt.Sprintf(" WHERE id='%s' RETURNING id", userId)
 	err = env.Db.QueryRow(query, queryParams...).Scan(&userId)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
+	utils.CheckFatalError(w, err)
+
+	utils.WriteSuccessJsonResponse(w, "updated user")
+}
+
+func blockUser(w http.ResponseWriter, r *http.Request) {
+	result, err := utils.ReadRequestToJson(r)
+	utils.CheckFatalError(w, err)
+
+	blockedId, ok1 := result["blockedId"].(string)
+	userId, ok2 := result["userId"].(string)
+	reqUserId, ok3 := utils.GetUserIdInSession(r)
+
+	if !utils.IsValidUUID(userId) || !ok1 || !ok2 || !ok3 || reqUserId != userId {
+		utils.WriteErrorJsonResponse(w,"invalid input")
+		return
+	}
+	var tupleId string
+	switch r.Method {
+	case http.MethodPost:
+		err = env.Db.QueryRow(
+			`INSERT INTO users_blocked (user_id, blocked_id) VALUES ($1, $2) RETURNING id`,
+			userId, blockedId).Scan(&tupleId)
+		utils.CheckFatalError(w, err)
+		var blockedFirId string
+		err = env.Db.QueryRow(`SELECT fir_id FROM users WHERE id=$1`, blockedId).Scan(&blockedFirId)
+		utils.CheckFatalError(w, err)
+		utils.WriteJsonResponse(w, "blockedFirId", blockedFirId)
+	case http.MethodDelete:
+		err = env.Db.QueryRow(
+			`DELETE FROM users_blocked WHERE user_id = $1 AND blocked_id = $2 RETURNING id`,
+			userId, blockedId).Scan(&tupleId)
+		utils.CheckFatalError(w, err)
+		utils.WriteSuccessJsonResponse(w, tupleId)
+	}
+}
+
+func reportUser(w http.ResponseWriter, r *http.Request) {
+	result, err := utils.ReadRequestToJson(r)
+	utils.CheckFatalError(w, err)
+
+	reportedId, ok1 := result["reportedId"].(string)
+	reporterId, ok2 := result["reporterId"].(string)
+	reason, ok3 := result["reason"].(string)
+	reqUserId, ok4 := utils.GetUserIdInSession(r)
+
+	if !utils.IsValidUUID(reporterId) || !ok1 || !ok2 || !ok3 || !ok4 || reqUserId != reporterId {
+		utils.WriteErrorJsonResponse(w,"invalid input")
+		return
+	}
+
+	var tupleId string
+	err = env.Db.QueryRow(`
+		INSERT INTO users_reported (reporter_id, reported_id, reason) 
+		VALUES ($1, $2, $3) RETURNING id`, reporterId, reportedId, reason).Scan(&tupleId)
+	utils.CheckFatalError(w, err)
+	utils.WriteSuccessJsonResponse(w, tupleId)
+}
+
+func isUserBanned(w http.ResponseWriter, r *http.Request) {
+	userId, ok := utils.GetUserIdInSession(r)
+	if !ok || !utils.IsValidUUID(userId) {
+		utils.WriteError(w,"invalid input")
+		return
+	}
+
+	var banDate time.Time
+	key := "isBanned"
+	if err := env.Db.QueryRow(`SELECT created_at FROM users_banned WHERE user_id=$1`,
+		userId).Scan(&banDate); err == sql.ErrNoRows {
+		utils.WriteJsonResponse(w, key, false)
 	} else {
-		utils.WriteSuccessJsonResponse(w, "updated user")
+		utils.WriteJsonResponse(w, key, true)
 	}
 }

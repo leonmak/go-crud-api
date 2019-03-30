@@ -7,8 +7,7 @@ import (
 
 
 // TODO: Implement:
-// TODO: - csrf, rate limit middleware
-// TODO: - cloudinary, email verification, change name/password
+// TODO: - rate limit middleware
 
 func Init() {
 	env.InitEnv()

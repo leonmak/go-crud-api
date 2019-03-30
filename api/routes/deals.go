@@ -173,6 +173,23 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	`
 	fromTables := ` FROM deals d LEFT JOIN deal_images d_i on d.id=d_i.deal_id`
 
+	reqUserId, hasSessionId := utils.GetUserIdInSession(r)
+	if reqUserId != "" && hasSessionId {
+		// deal is not hidden by user
+		filterHidden := fmt.Sprintf(
+			` NOT EXISTS (SELECT user_id FROM deal_hidden d_h
+			WHERE d_h.deal_id=d.id AND d_h.user_id='%s')`,
+			reqUserId)
+		filterStrings = append(filterStrings, filterHidden)
+
+		// poster is not blocked by user
+		filterBlocked := fmt.Sprintf(
+			` NOT EXISTS (SELECT user_id FROM users_blocked u_b 
+			WHERE u_b.blocked_id=d.poster_id AND u_b.user_id='%s')`,
+			reqUserId)
+		filterStrings = append(filterStrings, filterBlocked)
+	}
+
 	// In profile, get deals by those joined:
 	// - Join tables on member id
 	memberId := values.Get("memberId")
@@ -272,7 +289,8 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 func getDealCategories(w http.ResponseWriter, r *http.Request) {
 	var categories []structs.DealCategory
 	var rows *sql.Rows
-	rows, err := env.Db.Query(`SELECT id, name, display_name, icon_url, priority, is_active from deal_categories`)
+	rows, err := env.Db.Query(
+		`SELECT id, name, display_name, icon_url, priority, is_active from deal_categories`)
 	for rows.Next() {
 		var category structs.DealCategory
 		err = rows.Scan(
@@ -393,35 +411,27 @@ func postDeal(w http.ResponseWriter, r *http.Request) {
 	query := strings.Join([]string{insertStr, valuesStr, returnStr}, " ")
 	var dealId string
 	err = env.Db.QueryRow(query, vals...).Scan(&dealId)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
-
-	// Insert image
-	var thumbnailImageId string
-	err = env.Db.QueryRow(
-		"INSERT into deal_images (deal_id, image_url, poster_id) VALUES ($1, $2, $3) RETURNING id",
-		dealId, imageURL, posterId).Scan(&thumbnailImageId)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 
 	// Insert membership
 	var membershipId string
 	err = env.Db.QueryRow(
 		"INSERT INTO deal_memberships (user_id, deal_id) VALUES ($1, $2) RETURNING id",
 		posterId, dealId).Scan(&membershipId)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 
 	// Update deal's thumbnail lid
-	if thumbnailImageId != "" {
+	if imageURL != "" {
+		// Insert image
+		var thumbnailImageId string
+		err = env.Db.QueryRow(
+			"INSERT into deal_images (deal_id, image_url, poster_id) VALUES ($1, $2, $3) RETURNING id",
+			dealId, imageURL, posterId).Scan(&thumbnailImageId)
+		utils.CheckFatalError(w, err)
+
 		err = env.Db.QueryRow("UPDATE deals SET thumbnail_id=$1 WHERE id=$2 RETURNING id",
 			thumbnailImageId, dealId).Scan(&dealId)
+		utils.CheckFatalError(w, err)
 	}
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
@@ -450,10 +460,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	var queryValues []interface{}
 	ok := true
 	var val interface{}
@@ -500,10 +507,7 @@ func UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	var thumbnailImageId string
 	err = env.Db.QueryRow("UPDATE deal_images SET image_url=$1 WHERE (deal_id=$2 AND poster_id=$3) RETURNING id",
 		imageURL, dealId, userId).Scan(&thumbnailImageId)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 
 	// Form query string
 	colValues["updated_at"] = time.Now()
@@ -606,10 +610,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	values := r.URL.Query()
 	base := values.Get("base")
 	limit := values.Get("limit")
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	limitI, err := strconv.Atoi(limit)
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, "Invalid limit")
@@ -643,7 +644,12 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		var member structs.DealMembership
-		rows.Scan(&member.User.ID, &member.User.DisplayName, &member.User.ImageURL, &member.JoinedAt, &member.User.FIRID)
+		err = rows.Scan(&member.User.ID, &member.User.DisplayName,
+			&member.User.ImageURL, &member.JoinedAt, &member.User.FIRID)
+		if err != nil {
+			utils.WriteErrorJsonResponse(w, "invalid")
+			break
+		}
 		dealMembers = append(dealMembers, member)
 	}
 	membersBytes, err := json.Marshal(dealMembers)
@@ -656,10 +662,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 
 func handleDealMembership(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	dealId, dealIdOk := result["dealId"].(string)
 	userId, userIdOk := result["userId"].(string)
 	reqUserId, reqUserIdOk := utils.GetUserIdInSession(r)
@@ -709,16 +712,10 @@ func LeaveDeal(dealId string, userId string) (err error) {
 
 func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	var imageUrls []string
 	rows, err := env.Db.Query(`SELECT image_url from deal_images WHERE deal_id = $1`, dealId)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	defer rows.Close()
 	for rows.Next() {
 		var imageUrl string
@@ -729,19 +726,13 @@ func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 		imageUrls = append(imageUrls, imageUrl)
 	}
 	imageURLStr, err := json.Marshal(imageUrls)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	w.Write(imageURLStr)
 }
 
 func handleDealImage(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	var dealImageId string
 	switch r.Method {
 	case http.MethodPost:
@@ -766,32 +757,24 @@ func handleDealImage(w http.ResponseWriter, r *http.Request) {
 			time.Now, userId).Scan(&dealImageId)
 	default: utils.WriteErrorJsonResponse(w, fmt.Sprintf("Method not supported %s", r.Method))
 	}
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	utils.WriteJsonResponse(w, "result", "Updated deal image")
 }
 
 func getDealLikeByUserId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
 	userId, err := getURLParamUUID("userId", r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	isUpvote := false
-	env.Db.QueryRow("SELECT is_upvote from deal_likes WHERE deal_id=$1 AND user_id=$2",
+	err = env.Db.QueryRow("SELECT is_upvote from deal_likes WHERE deal_id=$1 AND user_id=$2",
 		dealId, userId).Scan(&isUpvote)
+	utils.CheckFatalError(w, err)
 	utils.WriteJsonResponse(w, "isUpvote", isUpvote)
 }
 
 func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	dealId, err := getURLParamUUID("dealId", r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	var upVotes int
 	var downVotes int
 	err = env.Db.QueryRow(`SELECT 
@@ -813,10 +796,7 @@ func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 
 func handleDealLike(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	dealId, ok1 := result["dealId"].(string)
 	userId, ok2 := result["userId"].(string)
 	upVote, ok3 := result["upVote"].(bool)
@@ -839,20 +819,14 @@ func handleDealLike(w http.ResponseWriter, r *http.Request) {
 		utils.WriteErrorJsonResponse(w, "Method not supported")
 		return
 	}
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	utils.WriteJsonResponse(w, "result",
 		fmt.Sprintf("Updated user '%s' like status for deal '%s'", userId, dealId))
 }
 
 func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 	dealId, err := getURLParamUUID("dealId", r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	var dealComments []structs.DealComment
 	rows, err := env.Db.Query(
 		`SELECT d.id, d.user_id, u.fir_id, u.display_name, d.comment_str, d.posted_at 
@@ -868,19 +842,13 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
 		dealComments = append(dealComments, dealComment)
 	}
 	dealCommentBytes, err := json.Marshal(dealComments)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	w.Write(dealCommentBytes)
 }
 
 func handleDealComment(w http.ResponseWriter, r *http.Request) {
 	result, err := utils.ReadRequestToJson(r)
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
+	utils.CheckFatalError(w, err)
 	dealId, ok1 := result["dealId"].(string)
 	userId, ok2 := result["userId"].(string)
 	comment, ok3 := result["comment"].(string)
@@ -915,4 +883,29 @@ func handleDealComment(w http.ResponseWriter, r *http.Request) {
 	} else {
 		utils.WriteJsonResponse(w, "commentId", dealCommentId)
 	}
+}
+
+func hideDeal(w http.ResponseWriter, r *http.Request) {
+	result, err := utils.ReadRequestToJson(r)
+	utils.CheckFatalError(w, err)
+	dealId, ok1 := result["dealId"].(string)
+	userId, ok2 := result["userId"].(string)
+	reqUserId, ok3 := utils.GetUserIdInSession(r)
+
+	if !utils.IsValidUUID(dealId) || !utils.IsValidUUID(userId) ||
+		!ok1 || !ok2 || !ok3 || reqUserId != userId {
+		utils.WriteErrorJsonResponse(w,"invalid input")
+		return
+	}
+	var dealHiddenId string
+	switch r.Method {
+	case http.MethodPost:
+		err = env.Db.QueryRow(`INSERT INTO deal_hidden(user_id, deal_id) VALUES ($1, $2) RETURNING deal_id`,
+			userId, dealId).Scan(&dealHiddenId)
+	case http.MethodDelete:
+		err = env.Db.QueryRow(`DELETE from deal_hidden WHERE user_id = $1 AND deal_id = $2 RETURNING deal_id`,
+			userId, dealId).Scan(&dealHiddenId)
+	}
+	utils.CheckFatalError(w, err)
+	utils.WriteSuccessJsonResponse(w, dealHiddenId)
 }

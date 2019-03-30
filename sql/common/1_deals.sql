@@ -3,7 +3,9 @@ ALTER TABLE IF EXISTS deals
   DROP CONSTRAINT IF EXISTS deals_thumbnail_id_fkey,
   DROP CONSTRAINT IF EXISTS deals_category_id_fkey,
   DROP CONSTRAINT IF EXISTS deals_poster_id_fkey;
-DROP TABLE IF EXISTS deals, deal_categories, deal_likes, deal_memberships, deal_images, deal_comments CASCADE;
+DROP TABLE IF EXISTS
+  deals, deal_categories, deal_likes, deal_memberships, deal_images, deal_comments, deal_hidden
+  CASCADE;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";  -- uuid
 CREATE EXTENSION IF NOT EXISTS "postgis";    -- geography & location
@@ -91,6 +93,14 @@ CREATE TABLE deal_comments
   posted_at   timestamp default timezone('utc', now()),
   removed_at  timestamp,
   CHECK (length(comment_str) <= 256)
+);
+
+CREATE TABLE deal_hidden
+(
+  id      uuid primary key default uuid_generate_v4(),
+  user_id uuid references users(id),
+  deal_id uuid references deals(id),
+  UNIQUE(user_id, deal_id)
 );
 
 ALTER TABLE deals
