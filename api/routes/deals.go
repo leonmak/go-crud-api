@@ -235,7 +235,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		deals = append(deals, deal)
 	}
 	dealArr, err := json.Marshal(deals)
-	if string(dealArr) == "null" {
+	if len(deals) == 0 {
 		dealArr = []byte("[]")
 	}
 	// set struct to pointer to omit on empty
@@ -243,7 +243,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
 	} else {
-		w.Write(dealArr)
+		utils.WriteBytes(w, dealArr)
 	}
 }
 
@@ -272,17 +272,8 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 		&deal.UpdatedAt, &deal.InactiveAt)
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
-		return
-	}
-	dealArr, err := json.Marshal(deal)
-	if string(dealArr) == "null" {
-		dealArr = []byte("[]")
-	}
-	if err != nil {
-		utils.WriteErrorJsonResponse(w, err.Error())
-		return
 	} else {
-		w.Write(dealArr)
+		utils.WriteStructs(w, deal)
 	}
 }
 
@@ -657,7 +648,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 		utils.WriteErrorJsonResponse(w, "invalid json")
 		return
 	}
-	w.Write(membersBytes)
+	utils.WriteBytes(w, membersBytes)
 }
 
 func handleDealMembership(w http.ResponseWriter, r *http.Request) {
@@ -866,9 +857,7 @@ func handleDealComment(w http.ResponseWriter, r *http.Request) {
 	var dealCommentId string
 	switch r.Method {
 	case http.MethodPost:
-		err = env.Db.QueryRow(`INSERT INTO deal_comments(user_id, deal_id, comment_str) 
-			VALUES($1, $2, $3)
-			RETURNING id`,
+		err = env.Db.QueryRow(`INSERT INTO deal_comments(user_id, deal_id, comment_str) VALUES($1, $2, $3) RETURNING id`,
 			userId, dealId, comment).Scan(&dealCommentId)
 	case http.MethodPut:
 		err = env.Db.QueryRow(`UPDATE deal_comments SET comment_str = $1 WHERE id = $2 RETURNING id`,
