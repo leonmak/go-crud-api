@@ -646,9 +646,9 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 	membersBytes, err := json.Marshal(dealMembers)
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, "invalid json")
-		return
+	} else {
+		utils.WriteBytes(w, membersBytes)
 	}
-	utils.WriteBytes(w, membersBytes)
 }
 
 func handleDealMembership(w http.ResponseWriter, r *http.Request) {
