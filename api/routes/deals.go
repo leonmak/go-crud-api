@@ -277,7 +277,7 @@ func GetDeal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getDealCategories(w http.ResponseWriter, r *http.Request) {
+func getDealCategories(w http.ResponseWriter) {
 	var categories []structs.DealCategory
 	var rows *sql.Rows
 	rows, err := env.Db.Query(
