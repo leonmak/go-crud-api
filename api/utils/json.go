@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"net/http"
 )
 
@@ -29,14 +28,6 @@ func WriteSuccessJsonResponse(w http.ResponseWriter, message string) {
 
 func WriteErrorJsonResponse(w http.ResponseWriter, message string) {
 	WriteJsonResponse(w, "error", message)
-}
-
-// Throws an error after logging and writing to response
-func CheckFatalError(w http.ResponseWriter, err error) {
-	if err != nil {
-		WriteErrorJsonResponse(w, err.Error())
-		log.Fatal(err.Error())
-	}
 }
 
 func WriteJsonResponse(w http.ResponseWriter, key string, values ...interface{}) {

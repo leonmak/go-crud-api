@@ -19,7 +19,7 @@ func getSuggestions(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 
 	rows, err = env.Db.Query("SELECT search_string, poster_id, category_id, latitude, longitude, radius_km, banner_url FROM suggestions WHERE active_from < $1 AND $1 < inactive_by", afterT)
-	defer rows.Close()
+	defer utils.CloseRows(rows)
 	for rows.Next() {
 		var s structs.Suggestion
 		err = rows.Scan(&s.SearchString, &s.PosterID, &s.CategoryID, &s.Latitude, &s.Longitude, &s.RadiusKm, &s.BannerUrl)
@@ -30,12 +30,12 @@ func getSuggestions(w http.ResponseWriter, r *http.Request) {
 		suggestions = append(suggestions, s)
 	}
 	suggestionsArr, err := json.Marshal(suggestions)
-	if string(suggestionsArr) == "null" {
+	if len(suggestions) == 0 {
 		suggestionsArr = []byte("[]")
 	}
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, err.Error())
 	} else {
-		w.Write(suggestionsArr)
+		utils.WriteBytes(w, suggestionsArr)
 	}
 }

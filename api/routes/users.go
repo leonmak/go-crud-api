@@ -184,7 +184,7 @@ func validateGoogleUserToken(email string, userToken string) bool {
 	if err != nil {
 		return false
 	}
-	utils.CloseResponse(resp)
+	defer utils.CloseResponse(resp)
 	jsonResp, err := utils.ReadResponseToJson(resp)
 	isValid := jsonResp["email"].(string) == email
 	return isValid
@@ -225,7 +225,7 @@ func getFacebookAppToken() (appToken string, err error) {
 	if err != nil {
 		return "", fmt.Errorf("could not get FB App Token")
 	}
-	utils.CloseResponse(resp)
+	defer utils.CloseResponse(resp)
 	jsonResp, err := utils.ReadResponseToJson(resp)
 	appToken = jsonResp["access_token"].(string)
 	return appToken, nil
@@ -239,7 +239,7 @@ func validateFacebookUserToken(appToken string, userToken string, userId string)
 	if err != nil {
 		return false
 	}
-	utils.CloseResponse(resp)
+	defer utils.CloseResponse(resp)
 	jsonResp, err := utils.ReadResponseToJson(resp)
 	jsonRespData := jsonResp["data"].(utils.UnstructuredJSON)
 	isValid := jsonRespData["is_valid"].(bool) && jsonRespData["user_id"].(string) == userId

@@ -1,11 +1,12 @@
 package routes
 
 import (
+	"groupbuying.online/api/utils"
 	"net/http"
 )
 
-func heartbeat(w http.ResponseWriter, r *http.Request) {
+func heartbeat(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("."))
+	utils.WriteString(w, "{}")
 }

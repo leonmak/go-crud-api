@@ -219,7 +219,7 @@ func getDeals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer rows.Close()
+	defer utils.CloseRows(rows)
 	for rows.Next() {
 		var deal structs.Deal
 		err = rows.Scan(&deal.ID, &deal.Title, &deal.Description, &deal.ThumbnailUrl,
@@ -641,7 +641,7 @@ func getDealMembersByDealId(w http.ResponseWriter, r *http.Request) {
 		LIMIT $2;
 		`, dealId, limitI)
 	}
-	defer rows.Close()
+	defer utils.CloseRows(rows)
 	for rows.Next() {
 		var member structs.DealMembership
 		err = rows.Scan(&member.User.ID, &member.User.DisplayName,
@@ -716,7 +716,7 @@ func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 	var imageUrls []string
 	rows, err := env.Db.Query(`SELECT image_url from deal_images WHERE deal_id = $1`, dealId)
 	utils.CheckFatalError(w, err)
-	defer rows.Close()
+	defer utils.CloseRows(rows)
 	for rows.Next() {
 		var imageUrl string
 		if err := rows.Scan(&imageUrl); err != nil {
@@ -727,7 +727,7 @@ func getDealImageUrlsByDealId(w http.ResponseWriter, r *http.Request) {
 	}
 	imageURLStr, err := json.Marshal(imageUrls)
 	utils.CheckFatalError(w, err)
-	w.Write(imageURLStr)
+	utils.WriteBytes(w, imageURLStr)
 }
 
 func handleDealImage(w http.ResponseWriter, r *http.Request) {
@@ -791,7 +791,8 @@ func getDealLikeSummaryByDealId(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		utils.WriteErrorJsonResponse(w, "invalid json")
 	}
-	w.Write(resStr)
+	_, err = w.Write(resStr)
+	utils.CheckFatalError(w, err)
 }
 
 func handleDealLike(w http.ResponseWriter, r *http.Request) {
@@ -834,16 +835,14 @@ func getDealCommentsByDealId(w http.ResponseWriter, r *http.Request)  {
  		INNER JOIN users u ON u.id = d.user_id 
 		WHERE removed_at ISNULL AND deal_id = $1`,
 		dealId)
-	defer rows.Close()
+	defer utils.CloseRows(rows)
 	for rows.Next() {
 		var dealComment structs.DealComment
 		err = rows.Scan(&dealComment.ID, &dealComment.UserID, &dealComment.UserFIRID,
 			&dealComment.Username, &dealComment.Comment, &dealComment.PostedAt)
 		dealComments = append(dealComments, dealComment)
 	}
-	dealCommentBytes, err := json.Marshal(dealComments)
-	utils.CheckFatalError(w, err)
-	w.Write(dealCommentBytes)
+	utils.WriteStructs(w, dealComments)
 }
 
 func handleDealComment(w http.ResponseWriter, r *http.Request) {

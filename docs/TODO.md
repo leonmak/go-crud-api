@@ -1,5 +1,8 @@
 # TODOs
 
+## Security
+- CSRF
+
 ## Database
 - add indices
     ```
